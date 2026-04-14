@@ -38,6 +38,9 @@ CLI command → features/ function → MoodleClient method → HTTP
 - `get_courses()` — AJAX (`core_course_get_enrolled_courses_by_timeline_classification`)
 - `get_course_participants(course_id)` — scrapes `/user/index.php` (AJAX function not registered)
 - `get_grade_report(course_id)` — scrapes `/grade/report/grader/index.php`; detects login redirect and raises a clear session-expired error
+- `get_assignment_internal_id(cmid)` → `(assignment_id, context_id)` — scrapes grader page for `data-assignmentid` and `data-contextid`; these differ from the cmid and are required for grade submission
+- `get_grade_form_fragment(context_id, user_id)` — calls `core_get_fragment` with `mod_assign/gradingpanel` to get a fresh form field dict including a one-time `itemid`; also parses `grade_max` from label "Grade out of X"
+- `submit_grade_for_user(cmid, user_id, grade, feedback, notify_student)` — orchestrates the full grade submission: resolves IDs → loads fresh fragment → serializes form → calls `mod_assign_submit_grading_form`; returns `grade_max`
 - `get_course_assignments(course_id)` — scrapes `/mod/assign/index.php?id={course_id}`; returns `{cmid, name, due_text, submitted_count}` per assignment
 - `get_assignment_submissions(cmid)` — scrapes `/mod/assign/view.php?id={cmid}&action=grading&perpage=1000`; returns `{user_id, fullname, email, status, files:[{filename,url}]}` for submitted entries only (col 8 = file links)
 - `download_file(url, dest_path)` — authenticated file download via session; rewrites `webservice/pluginfile.php` → `pluginfile.php` for session-cookie auth
@@ -67,6 +70,14 @@ Filtering is always done in `features/` after fetching — never in the client. 
 
 ### Grade report pagination
 `get_grade_report()` fetches pages (`?page=0`, `?page=1`, …) until a page returns fewer than 20 rows. Column headers are parsed only from page 0. `shorten_columns()` in `features/grades.py` strips Arabic parenthesised suffixes and truncates — pass `max_len=50` for the `--full` view.
+
+### Grade submission
+`moodlectl grading submit` calls `client.submit_grade_for_user(cmid, user_id, grade)` which does three steps:
+1. Scrape grader page to get `(assignment_id, context_id)` — these are different from the cmid
+2. Call `core_get_fragment` (`mod_assign/gradingpanel`) to get a fresh form with a one-time `itemid` for the feedback editor — **must be fetched immediately before submission**, not cached
+3. Call `mod_assign_submit_grading_form(assignmentid, userid, jsonformdata)` with the URL-encoded form; empty list response = success, non-empty = validation error
+
+The grade scale ("out of X") is parsed from the label "Grade out of X" in the fragment HTML. The cmid shown in `assignments list` is the course-module ID; the internal `assignmentid` is different and resolved at submission time.
 
 ### Assignment downloads
 `features/assignments.py` has two public functions:

@@ -10,7 +10,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-from moodlectl.cli import assignments, courses, grades, messages, reports
+from moodlectl.cli import assignments, courses, grades, grading, messages, reports
 
 app = typer.Typer(
     name="moodlectl",
@@ -21,6 +21,7 @@ app = typer.Typer(
 app.add_typer(courses.app, name="courses")
 app.add_typer(grades.app, name="grades")
 app.add_typer(assignments.app, name="assignments")
+app.add_typer(grading.app, name="grading")
 app.add_typer(messages.app, name="messages")
 app.add_typer(reports.app, name="reports")
 

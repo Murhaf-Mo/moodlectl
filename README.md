@@ -101,6 +101,23 @@ assignments/
           report.docx
 ```
 
+### Grading
+
+```bash
+# Submit a grade for a student on an assignment
+moodlectl grading submit --assignment 18002 --student 1557 --grade 10
+
+# With written feedback
+moodlectl grading submit -a 18002 -s 1557 -g 8.5 --feedback "Good work overall."
+
+# Notify the student by email after grading
+moodlectl grading submit -a 18002 -s 1557 -g 10 --notify
+```
+
+- `--assignment` is the cmid from `moodlectl assignments list`
+- `--student` is the user ID from `moodlectl courses participants`
+- `--grade` must be within the assignment's configured grade scale (shown as "Grade out of X" in Moodle)
+
 ### Messages
 
 ```bash

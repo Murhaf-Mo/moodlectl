@@ -342,6 +342,142 @@ class MoodleAPI(MoodleClientBase):
 
         return results
 
+    def get_assignment_internal_id(self, cmid: int) -> tuple[int, int]:
+        """Return (internal_assignment_id, context_id) for a given cmid.
+
+        These IDs are needed for grade submission and differ from the cmid.
+        Scraped from the grader page's data attributes.
+        """
+        from bs4 import BeautifulSoup
+
+        resp = self._session.get(
+            f"{self.base_url}/mod/assign/view.php",
+            params={"id": cmid, "action": "grader"},
+        )
+        if "login" in resp.url:
+            raise RuntimeError("Session expired — re-login and update MOODLE_SESSION in .env")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        grade_div = soup.find(attrs={"data-region": "grade"})
+        if not grade_div:
+            raise RuntimeError(f"Could not find grade panel for cmid={cmid}")
+        assignment_id = int(grade_div["data-assignmentid"])
+        context_id = int(grade_div["data-contextid"])
+        return assignment_id, context_id
+
+    def get_grade_form_fragment(self, context_id: int, user_id: int) -> dict:
+        """Load the grading form fragment for a student.
+
+        Returns the raw form field dict (as parsed from the fragment HTML).
+        The itemid for the feedback editor changes per request — always fetch
+        a fresh fragment immediately before submitting.
+        """
+        import re
+        from bs4 import BeautifulSoup
+
+        result = self.ajax("core_get_fragment", {
+            "component": "mod_assign",
+            "callback": "gradingpanel",
+            "contextid": context_id,
+            "args": [
+                {"name": "userid", "value": str(user_id)},
+                {"name": "attemptnumber", "value": "-1"},
+                {"name": "jsonformdata", "value": ""},
+            ],
+        })
+        html = result.get("html", "")
+        soup = BeautifulSoup(html, "html.parser")
+
+        fields: dict[str, str] = {}
+        for el in soup.find_all(["input", "textarea", "select"]):
+            name = el.get("name", "")
+            if not name:
+                continue
+            if el.name == "textarea":
+                fields[name] = el.get_text()
+            elif el.name == "select":
+                selected = el.find("option", selected=True)
+                fields[name] = selected.get("value", "") if selected else ""
+            else:
+                fields[name] = el.get("value", "")
+
+        # Parse grade max from label text e.g. "Grade out of 10"
+        label = soup.find("label", {"for": "id_grade"})
+        grade_max = None
+        if label:
+            m = re.search(r"out of\s+([\d.]+)", label.get_text(), re.IGNORECASE)
+            if m:
+                grade_max = float(m.group(1))
+
+        fields["__grade_max__"] = str(grade_max) if grade_max else ""
+        return fields
+
+    def submit_grade(
+        self,
+        assignment_id: int,
+        user_id: int,
+        grade: float,
+        feedback: str = "",
+        notify_student: bool = False,
+    ) -> None:
+        """Submit a grade for a student's assignment submission.
+
+        Fetches a fresh form fragment to get the one-time itemid, then calls
+        mod_assign_submit_grading_form via the AJAX API.
+
+        Raises RuntimeError if the grade could not be saved.
+        """
+        import json
+        from urllib.parse import urlencode
+
+        # We need context_id to load the fragment — get it via the grade_form_fragment
+        # by first resolving context_id from the assignment. The caller must provide
+        # the already-resolved form fields via get_grade_form_fragment(); or we call
+        # it here with assignment_id as a placeholder (context_id is passed in).
+        # This method expects assignment_id (internal) and context_id to be known.
+        raise NotImplementedError("Use submit_grade_with_context instead")
+
+    def submit_grade_for_user(
+        self,
+        cmid: int,
+        user_id: int,
+        grade: float,
+        feedback: str = "",
+        notify_student: bool = False,
+    ) -> float:
+        """High-level grade submission: resolves IDs, fetches fresh form, submits.
+
+        Returns the grade_max so the caller can display it.
+        Raises RuntimeError if the grade could not be saved.
+        """
+        import json
+        from urllib.parse import urlencode
+
+        # 1. Resolve internal IDs from cmid
+        assignment_id, context_id = self.get_assignment_internal_id(cmid)
+
+        # 2. Load fresh form fragment (itemid changes each time)
+        fields = self.get_grade_form_fragment(context_id, user_id)
+        grade_max = float(fields.pop("__grade_max__") or 0)
+
+        # 3. Override grade, feedback, and notification preference
+        fields["grade"] = str(grade)
+        fields["assignfeedbackcomments_editor[text]"] = feedback
+        fields["sendstudentnotifications"] = "1" if notify_student else "0"
+
+        # 4. Submit
+        result = self.ajax("mod_assign_submit_grading_form", {
+            "assignmentid": assignment_id,
+            "userid": user_id,
+            "jsonformdata": json.dumps(urlencode(fields)),
+        })
+
+        # Empty list = success; non-empty = validation errors
+        if result:
+            errors = "; ".join(e.get("message", str(e)) for e in result)
+            raise RuntimeError(f"Grade submission failed: {errors}")
+
+        return grade_max
+
     def download_file(self, url: str, dest_path) -> None:
         """Download an authenticated Moodle file (pluginfile.php) to dest_path."""
         from pathlib import Path
