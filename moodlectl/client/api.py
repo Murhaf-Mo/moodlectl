@@ -500,3 +500,6 @@ class MoodleAPI(MoodleClientBase):
         return self.ajax("core_message_send_instant_messages", {
             "messages": [{"touserid": user_id, "text": message, "textformat": 1}],
         })
+
+    def delete_message(self, message_id: int) -> None:
+        self.ajax("core_message_delete_message", {"messageid": message_id})
