@@ -16,7 +16,7 @@ console = Console()
 
 @app.command("list")
 def list_courses(
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, csv"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
 ):
     """List all your enrolled courses."""
     client = MoodleClient.from_config(Config.load())
@@ -27,16 +27,24 @@ def list_courses(
 @app.command("participants")
 def participants(
     course_id: Optional[int] = typer.Option(None, "--id", help="Course ID. Omit for all courses."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, csv"),
+    role: str = typer.Option("", "--role", "-r", help="Filter by role, e.g. student, teacher"),
+    name: str = typer.Option("", "--name", "-n", help="Filter by name (partial match)"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
 ):
-    """Show participants for one course or all courses."""
+    """Show participants for one course or all courses.
+
+    Examples:
+      moodlectl courses participants --id 568
+      moodlectl courses participants --role student
+      moodlectl courses participants --id 568 --name "Ali"
+    """
     client = MoodleClient.from_config(Config.load())
 
     if course_id:
-        data = courses_feature.get_participants(client, course_id)
+        data = courses_feature.get_participants(client, course_id, role=role, name=name)
         print_table(data, columns=["id", "fullname", "email", "roles", "lastaccess"], fmt=output)
     else:
-        all_data = courses_feature.get_all_participants(client)
+        all_data = courses_feature.get_all_participants(client, role=role, name=name)
         courses = courses_feature.list_courses(client)
         course_names = {c["id"]: c["fullname"] for c in courses}
 

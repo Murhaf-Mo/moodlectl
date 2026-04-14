@@ -19,9 +19,17 @@ def print_table(data: list[dict], columns: list[str], fmt: str = "table") -> Non
         return
 
     if fmt == "csv":
-        print(",".join(columns))
+        import csv
+        import io
+        import sys
+        # Write UTF-8 bytes directly so Arabic/Unicode columns survive on Windows
+        buf = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8-sig", newline="")
+        writer = csv.writer(buf)
+        writer.writerow(columns)
         for row in data:
-            print(",".join(str(row.get(k, "")) for k in columns))
+            writer.writerow([str(row.get(k, "")) for k in columns])
+        buf.flush()
+        buf.detach()  # don't close underlying stdout
         return
 
     table = Table(show_header=True, header_style="bold cyan")
