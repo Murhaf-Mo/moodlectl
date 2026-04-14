@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip install *)",
+      "Bash(python main.py)",
+      "Bash(ls -la /c/Users/Cola/PycharmProjects/lms-api-test/.venv/Lib/site-packages/*.dist-info/)",
+      "Bash(awk '{print $NF}')",
+      "Bash(ls /c/Users/Cola/PycharmProjects/lms-api-test/.venv/Lib/site-packages/*.dist-info)",
+      "Bash(xargs -I {} basename {})"
+    ]
+  }
+}
