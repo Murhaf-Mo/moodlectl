@@ -155,8 +155,6 @@ def download_submissions(
                 progress.advance(task)
                 continue
 
-            assign_dir = _safe_name(assign["name"])
-
             for sub in submissions:
                 uid = sub["user_id"]
                 fullname = sub["fullname"]
