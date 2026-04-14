@@ -22,13 +22,60 @@ class MoodleAPI(MoodleClientBase):
     # ── Participants ──────────────────────────────────────────────────────────
 
     def get_course_participants(self, course_id: int) -> list[dict]:
-        return self.ajax("core_enrol_get_enrolled_users", {
-            "courseid": course_id,
-            "options": [
-                {"name": "onlyactive", "value": 1},
-                {"name": "userfields", "value": "id,fullname,email,lastaccess,roles"},
-            ],
-        })
+        """Scrape the participants page for a course.
+
+        Table columns: [checkbox, fullname, email, roles, groups, lastaccess, status]
+        """
+        from bs4 import BeautifulSoup
+
+        resp = self._session.get(
+            f"{self.base_url}/user/index.php",
+            params={"id": course_id, "perpage": 5000},
+        )
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table", {"id": "participants"})
+
+        if not table:
+            return []
+
+        participants = []
+        for row in table.find("tbody").find_all("tr"):
+            cols = row.find_all(["td", "th"])
+            if len(cols) < 3:
+                continue
+
+            # User ID from checkbox input id e.g. id="user1557"
+            checkbox = cols[0].find("input")
+            user_id = 0
+            if checkbox and checkbox.get("id", "").startswith("user"):
+                try:
+                    user_id = int(checkbox["id"].replace("user", ""))
+                except ValueError:
+                    pass
+
+            # Fullname: strip the avatar initials (first 2 chars like "AA")
+            name_link = cols[1].find("a")
+            fullname = name_link.get_text(strip=True)[2:] if name_link else cols[1].get_text(strip=True)
+
+            email = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+            roles = cols[3].get_text(strip=True) if len(cols) > 3 else ""
+            lastaccess = cols[5].get_text(strip=True) if len(cols) > 5 else ""
+            status = cols[6].get_text(strip=True) if len(cols) > 6 else ""
+
+            if not fullname or user_id == 0:
+                continue
+
+            participants.append({
+                "id": user_id,
+                "fullname": fullname,
+                "email": email,
+                "roles": roles,
+                "lastaccess": lastaccess,
+                "status": status,
+            })
+
+        return participants
 
     # ── Grades ────────────────────────────────────────────────────────────────
 

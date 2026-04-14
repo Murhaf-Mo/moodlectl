@@ -6,7 +6,9 @@
       "Bash(ls -la /c/Users/Cola/PycharmProjects/lms-api-test/.venv/Lib/site-packages/*.dist-info/)",
       "Bash(awk '{print $NF}')",
       "Bash(ls /c/Users/Cola/PycharmProjects/lms-api-test/.venv/Lib/site-packages/*.dist-info)",
-      "Bash(xargs -I {} basename {})"
+      "Bash(xargs -I {} basename {})",
+      "Bash(moodlectl *)",
+      "Bash(python *)"
     ]
   }
 }

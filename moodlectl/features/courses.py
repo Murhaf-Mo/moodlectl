@@ -18,11 +18,17 @@ def get_all_participants(client: MoodleClient) -> dict[int, list[dict]]:
 
 
 def _normalise(user: dict) -> dict:
-    roles = [r["shortname"] for r in user.get("roles", [])]
+    raw_roles = user.get("roles", "")
+    if isinstance(raw_roles, list):
+        roles = ", ".join(r["shortname"] for r in raw_roles) or "—"
+    else:
+        roles = str(raw_roles) if raw_roles else "—"
+
     return {
         "id": user.get("id"),
         "fullname": user.get("fullname", ""),
         "email": user.get("email", ""),
-        "roles": ", ".join(roles) if roles else "—",
-        "lastaccess": user.get("lastaccess", 0),
+        "roles": roles,
+        "lastaccess": user.get("lastaccess", ""),
+        "status": user.get("status", ""),
     }
