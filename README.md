@@ -64,6 +64,43 @@ moodlectl grades show --course 568 --full --name "Ali"
 moodlectl grades show --course 568 --output csv > grades.csv
 ```
 
+### Assignments
+
+```bash
+# List all assignments across all courses (shows status: active / past)
+moodlectl assignments list
+
+# Filter by status
+moodlectl assignments list --status active
+moodlectl assignments list --status past
+
+# Specific courses only
+moodlectl assignments list --course 568 --course 570
+
+# Download all submitted files (organised by course / active|past / assignment / student)
+moodlectl assignments download
+
+# Download only active assignments for a specific course
+moodlectl assignments download --course 568 --status active
+
+# Choose a custom output directory
+moodlectl assignments download --course 568 --status past --out ./archive
+```
+
+Downloaded files are organised as:
+```
+assignments/
+  COURSE_SHORT/
+    active/
+      Assignment_Name/
+        Student_Name_123/
+          submission.pdf
+    past/
+      Assignment_Name/
+        Student_Name_456/
+          report.docx
+```
+
 ### Messages
 
 ```bash
@@ -86,5 +123,5 @@ All commands support `--output` / `-o`:
 ## Coming Soon
 
 - `moodlectl reports student` — full report per student across all courses
-- `moodlectl ai grade` — AI-powered assignment grading via Claude
+- `moodlectl ai grade` — AI-powered assignment grading via Claude (reads downloaded files)
 - `moodlectl ai reply` — auto-reply to student messages

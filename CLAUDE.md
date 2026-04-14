@@ -38,7 +38,10 @@ CLI command → features/ function → MoodleClient method → HTTP
 - `get_courses()` — AJAX (`core_course_get_enrolled_courses_by_timeline_classification`)
 - `get_course_participants(course_id)` — scrapes `/user/index.php` (AJAX function not registered)
 - `get_grade_report(course_id)` — scrapes `/grade/report/grader/index.php`; detects login redirect and raises a clear session-expired error
-- `get_assignments()`, `send_message()` — AJAX
+- `get_course_assignments(course_id)` — scrapes `/mod/assign/index.php?id={course_id}`; returns `{cmid, name, due_text, submitted_count}` per assignment
+- `get_assignment_submissions(cmid)` — scrapes `/mod/assign/view.php?id={cmid}&action=grading&perpage=1000`; returns `{user_id, fullname, email, status, files:[{filename,url}]}` for submitted entries only (col 8 = file links)
+- `download_file(url, dest_path)` — authenticated file download via session; rewrites `webservice/pluginfile.php` → `pluginfile.php` for session-cookie auth
+- `send_message()` — AJAX
 
 **`client/__init__.py`** re-exports `MoodleAPI as MoodleClient` — always import from here.
 
@@ -64,6 +67,16 @@ Filtering is always done in `features/` after fetching — never in the client. 
 
 ### Grade report pagination
 `get_grade_report()` fetches pages (`?page=0`, `?page=1`, …) until a page returns fewer than 20 rows. Column headers are parsed only from page 0. `shorten_columns()` in `features/grades.py` strips Arabic parenthesised suffixes and truncates — pass `max_len=50` for the `--full` view.
+
+### Assignment downloads
+`features/assignments.py` has two public functions:
+- `list_assignments(client, course_ids, status)` — `status` is `active` (future due date or none), `past`, or `all`. Due dates are parsed from Moodle text format `"%A, %d %B %Y, %I:%M %p"`.
+- `download_submissions(client, course_ids, course_map, status, out_dir)` — downloads to `{out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file`. `course_map` is `{course_id: course_dict}` from `get_courses()`.
+
+`_safe_name()` strips filesystem-illegal characters and limits to 80 chars. The CLI resolves course IDs from `get_courses()` when `--course` is omitted. Assignments with `submitted_count == 0` are skipped without scraping the grading page.
+
+### Windows Unicode (cp1252)
+`cli/main.py` calls `sys.stdout.reconfigure(encoding="utf-8")` at startup — this fixes UnicodeEncodeError for Arabic in assignment names and course names when printing Rich tables. `output/formatters.py` uses `Console(legacy_windows=False)` to use ANSI instead of the Win32 console API. CSV output uses `utf-8-sig` (BOM) for Excel compatibility.
 
 ### AJAX vs scraping
 Not all Moodle functions are exposed via `/lib/ajax/service.php`. Test with a raw `ajax()` call first; if it returns `"Can't find data record in database table external_functions"`, scrape the page instead. Grade pages redirect to `/login/index.php` when the session is expired — check `resp.url` after following redirects.

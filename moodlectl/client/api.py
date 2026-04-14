@@ -170,10 +170,193 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Assignments ───────────────────────────────────────────────────────────
 
-    def get_assignments(self, course_ids: list[int]) -> dict:
-        return self.ajax("mod_assign_get_assignments", {
-            "courseids": course_ids,
-        })
+    def get_course_assignments(self, course_id: int) -> list[dict]:
+        """Scrape the assignment index page for a course.
+
+        Returns list of:
+          {cmid, name, due_text, submitted_count}
+        """
+        import re
+        from bs4 import BeautifulSoup
+
+        resp = self._session.get(
+            f"{self.base_url}/mod/assign/index.php",
+            params={"id": course_id},
+        )
+        if "login" in resp.url:
+            raise RuntimeError(
+                "Session expired while loading assignments.\n"
+                "Re-login in your browser and update MOODLE_SESSION in .env"
+            )
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table", class_="generaltable")
+        if not table:
+            return []
+
+        tbody = table.find("tbody")
+        if not tbody:
+            return []
+
+        assignments = []
+        for row in tbody.find_all("tr"):
+            cols = row.find_all(["td", "th"])
+            if len(cols) < 3:
+                continue
+
+            # col 1: assignment name + link containing cmid
+            name_cell = cols[1]
+            link = name_cell.find("a")
+            if not link:
+                continue
+            name = link.get_text(strip=True)
+            href = link.get("href", "")
+            m = re.search(r"[?&]id=(\d+)", href)
+            if not m:
+                continue
+            cmid = int(m.group(1))
+
+            # col 2: due date text
+            due_text = cols[2].get_text(strip=True) if len(cols) > 2 else ""
+
+            # col 3: number of submitted assignments
+            submitted_count = 0
+            if len(cols) > 3:
+                try:
+                    submitted_count = int(cols[3].get_text(strip=True))
+                except ValueError:
+                    pass
+
+            assignments.append({
+                "cmid": cmid,
+                "name": name,
+                "due_text": due_text,
+                "submitted_count": submitted_count,
+            })
+
+        return assignments
+
+    def get_assignment_brief_files(self, cmid: int) -> list[dict]:
+        """Scrape the assignment view page for instructor-attached brief files.
+
+        Returns list of {filename, url} for files attached to the assignment description.
+        """
+        from bs4 import BeautifulSoup
+
+        resp = self._session.get(
+            f"{self.base_url}/mod/assign/view.php",
+            params={"id": cmid},
+        )
+        if "login" in resp.url:
+            raise RuntimeError(
+                "Session expired while loading assignment.\n"
+                "Re-login in your browser and update MOODLE_SESSION in .env"
+            )
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        files = []
+        for a in soup.find_all("a", href=True):
+            href = a["href"]
+            if "pluginfile.php" in href and "mod_assign/introattachment" in href:
+                filename = a.get_text(strip=True)
+                if filename:
+                    files.append({"filename": filename, "url": href})
+        return files
+
+    def get_assignment_submissions(self, cmid: int) -> list[dict]:
+        """Scrape the grading page for an assignment.
+
+        Returns list of:
+          {user_id, fullname, email, status, files: [{filename, url}]}
+
+        Only entries with at least one file are included.
+        """
+        import re
+        from bs4 import BeautifulSoup
+
+        resp = self._session.get(
+            f"{self.base_url}/mod/assign/view.php",
+            params={"id": cmid, "action": "grading", "perpage": 1000},
+        )
+        if "login" in resp.url:
+            raise RuntimeError(
+                "Session expired while loading submissions.\n"
+                "Re-login in your browser and update MOODLE_SESSION in .env"
+            )
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table", class_="generaltable")
+        if not table:
+            return []
+
+        tbody = table.find("tbody")
+        if not tbody:
+            return []
+
+        results = []
+        for row in tbody.find_all("tr"):
+            cols = row.find_all(["td", "th"])
+            if len(cols) < 9:
+                continue
+
+            # col 2 (c2): fullname + link with user_id
+            name_cell = cols[2]
+            fullname = name_cell.get_text(strip=True)
+            user_id = 0
+            profile_link = name_cell.find("a")
+            if profile_link:
+                m = re.search(r"[?&]id=(\d+)", profile_link.get("href", ""))
+                if m:
+                    user_id = int(m.group(1))
+
+            if not fullname or user_id == 0:
+                continue
+
+            # col 3 (c3 email): email
+            email = cols[3].get_text(strip=True)
+
+            # col 4 (c4): submission status
+            status_text = cols[4].get_text(strip=True)
+
+            # col 8 (c8): file submissions
+            file_cell = cols[8]
+            files = []
+            for a in file_cell.find_all("a"):
+                href = a.get("href", "")
+                if "pluginfile.php" in href:
+                    files.append({
+                        "filename": a.get_text(strip=True),
+                        "url": href,
+                    })
+
+            if not files:
+                continue
+
+            results.append({
+                "user_id": user_id,
+                "fullname": fullname,
+                "email": email,
+                "status": status_text,
+                "files": files,
+            })
+
+        return results
+
+    def download_file(self, url: str, dest_path) -> None:
+        """Download an authenticated Moodle file (pluginfile.php) to dest_path."""
+        from pathlib import Path
+
+        # Moodle AJAX sometimes returns webservice/pluginfile.php URLs even when
+        # using session auth — rewrite to the regular pluginfile.php path.
+        url = url.replace("/webservice/pluginfile.php", "/pluginfile.php")
+
+        dest_path = Path(dest_path)
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        resp = self._session.get(url, stream=True)
+        resp.raise_for_status()
+        with open(dest_path, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=8192):
+                fh.write(chunk)
 
     # ── Messages ──────────────────────────────────────────────────────────────
 
