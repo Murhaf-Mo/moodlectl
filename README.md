@@ -79,14 +79,34 @@ moodlectl assignments list --course 568 --status past
 moodlectl assignments submissions --assignment 18002
 moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
 
-# Show students who have NOT submitted (with their last access time)
+# Only show submissions that haven't been graded yet
+moodlectl assignments submissions --assignment 18002 --ungraded
+
+# Show students who have NOT submitted for a specific assignment
 moodlectl assignments missing --assignment 18002 --course 568
 moodlectl assignments missing --assignment 18002 --course 568 --output csv > missing.csv
+
+# Show ALL missing submissions across every course and assignment
+moodlectl assignments missing-all
+moodlectl assignments missing-all --status past       # only overdue assignments
+moodlectl assignments missing-all --status active     # only upcoming assignments
+moodlectl assignments missing-all --course 568        # limit to one course
+moodlectl assignments missing-all --output csv > missing.csv
+
+# List ALL ungraded submissions across every course and assignment
+moodlectl assignments ungraded-all
+moodlectl assignments ungraded-all --status past
+moodlectl assignments ungraded-all --course 590
+moodlectl assignments ungraded-all --output csv > ungraded.csv
 
 # Download all submitted files (organised by course / active|past / assignment / student)
 moodlectl assignments download
 moodlectl assignments download --course 568 --status active
 moodlectl assignments download --course 568 --status past --out ./archive
+
+# Download only submissions that haven't been graded yet
+moodlectl assignments download --ungraded
+moodlectl assignments download --course 568 --ungraded
 ```
 
 Downloaded files are organised as:

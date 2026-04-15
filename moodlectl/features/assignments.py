@@ -101,12 +101,224 @@ def get_missing_submissions(
     return missing
 
 
+def get_all_missing_submissions(
+    client: MoodleClient,
+    course_ids: list[int],
+    course_map: dict[int, dict],
+    status: str = "all",
+) -> list[dict]:
+    """Return all students who have not submitted across all given courses/assignments.
+
+    Participants are cached per course to avoid redundant requests.
+    Each result: {course, assignment, assignment_status, due_date, user_id, fullname, email, lastaccess}
+    """
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    console = Console()
+    assignments = list_assignments(client, course_ids, status=status)
+
+    if not assignments:
+        return []
+
+    participants_cache: dict[int, list[dict]] = {}
+    results: list[dict] = []
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+        task = progress.add_task("Scanning…", total=len(assignments))
+
+        for assign in assignments:
+            cid = assign["course_id"]
+            cmid = assign["cmid"]
+            course_info = course_map.get(cid, {})
+
+            progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
+
+            try:
+                submissions = client.get_assignment_submissions(cmid)
+            except Exception as exc:
+                console.print(f"[yellow]  Warning: {assign['name']}: {exc}[/yellow]")
+                progress.advance(task)
+                continue
+
+            submitted_ids = {s["user_id"] for s in submissions}
+
+            if cid not in participants_cache:
+                try:
+                    participants_cache[cid] = client.get_course_participants(cid)
+                except Exception as exc:
+                    console.print(f"[yellow]  Warning: could not fetch participants for course {cid}: {exc}[/yellow]")
+                    participants_cache[cid] = []
+
+            for p in participants_cache[cid]:
+                if "student" not in p.get("roles", "").lower():
+                    continue
+                if p["id"] not in submitted_ids:
+                    results.append({
+                        "course": course_info.get("shortname", str(cid)),
+                        "assignment": assign["name"],
+                        "assignment_status": assign["status"],
+                        "due_date": assign["due_text"] or "No due date",
+                        "user_id": p["id"],
+                        "fullname": p["fullname"],
+                        "email": p["email"],
+                        "lastaccess": p.get("lastaccess", ""),
+                    })
+
+            progress.advance(task)
+
+    return results
+
+
+def get_all_missing_submissions(
+    client: MoodleClient,
+    course_ids: list[int],
+    course_map: dict[int, dict],
+    status: str = "all",
+) -> list[dict]:
+    """Return all students who have not submitted across all given courses/assignments.
+
+    Participants are cached per course to avoid redundant requests.
+    Each result: {course, assignment, assignment_status, due_date, user_id, fullname, email, lastaccess}
+    """
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    console = Console()
+    assignments = list_assignments(client, course_ids, status=status)
+
+    if not assignments:
+        return []
+
+    participants_cache: dict[int, list[dict]] = {}
+    results: list[dict] = []
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+        task = progress.add_task("Scanning…", total=len(assignments))
+
+        for assign in assignments:
+            cid = assign["course_id"]
+            cmid = assign["cmid"]
+            course_info = course_map.get(cid, {})
+
+            progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
+
+            try:
+                submissions = client.get_assignment_submissions(cmid)
+            except Exception as exc:
+                console.print(f"[yellow]  Warning: {assign['name']}: {exc}[/yellow]")
+                progress.advance(task)
+                continue
+
+            submitted_ids = {s["user_id"] for s in submissions}
+
+            if cid not in participants_cache:
+                try:
+                    participants_cache[cid] = client.get_course_participants(cid)
+                except Exception as exc:
+                    console.print(f"[yellow]  Warning: could not fetch participants for course {cid}: {exc}[/yellow]")
+                    participants_cache[cid] = []
+
+            for p in participants_cache[cid]:
+                if "student" not in p.get("roles", "").lower():
+                    continue
+                if p["id"] not in submitted_ids:
+                    results.append({
+                        "course": course_info.get("shortname", str(cid)),
+                        "assignment": assign["name"],
+                        "assignment_status": assign["status"],
+                        "due_date": assign["due_text"] or "No due date",
+                        "user_id": p["id"],
+                        "fullname": p["fullname"],
+                        "email": p["email"],
+                        "lastaccess": p.get("lastaccess", ""),
+                    })
+
+            progress.advance(task)
+
+    return results
+
+
+def is_ungraded(submission: dict) -> bool:
+    """Return True if the submission has not been graded yet.
+
+    Moodle shows the actual grade value (e.g. "Grade5.00 / 5.00") when graded.
+    Ungraded submissions show "-", empty, or "Not graded".
+    """
+    import re
+    gs = submission.get("grading_status", "")
+    # If there's a number in the grading status, a grade has been entered
+    return not bool(re.search(r"\d", gs))
+
+
+def get_all_ungraded_submissions(
+    client: MoodleClient,
+    course_ids: list[int],
+    course_map: dict[int, dict],
+    status: str = "all",
+) -> list[dict]:
+    """Return all submitted-but-ungraded entries across all given courses/assignments.
+
+    Each result: {course, assignment, assignment_status, due_date, user_id, fullname, email, grading_status, files}
+    """
+    from rich.console import Console
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    console = Console()
+    assignments = list_assignments(client, course_ids, status=status)
+
+    if not assignments:
+        return []
+
+    results: list[dict] = []
+
+    with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+        task = progress.add_task("Scanning…", total=len(assignments))
+
+        for assign in assignments:
+            cid = assign["course_id"]
+            course_info = course_map.get(cid, {})
+
+            progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
+
+            if assign["submitted_count"] == 0:
+                progress.advance(task)
+                continue
+
+            try:
+                submissions = client.get_assignment_submissions(assign["cmid"])
+            except Exception as exc:
+                console.print(f"[yellow]  Warning: {assign['name']}: {exc}[/yellow]")
+                progress.advance(task)
+                continue
+
+            for sub in submissions:
+                if is_ungraded(sub):
+                    filenames = ", ".join(f["filename"] for f in sub["files"]) if sub["files"] else "—"
+                    results.append({
+                        "course": course_info.get("shortname", str(cid)),
+                        "assignment": assign["name"],
+                        "assignment_status": assign["status"],
+                        "due_date": assign["due_text"] or "No due date",
+                        "user_id": sub["user_id"],
+                        "fullname": sub["fullname"],
+                        "email": sub["email"],
+                        "grading_status": sub.get("grading_status", ""),
+                        "files": filenames,
+                    })
+
+            progress.advance(task)
+
+    return results
+
+
 def download_submissions(
     client: MoodleClient,
     course_ids: list[int],
     course_map: dict[int, dict],
     status: str = "all",
     out_dir: Path = Path("assignments"),
+    ungraded_only: bool = False,
 ) -> list[dict]:
     """Download submitted files for all assignments in the given courses.
 
@@ -182,6 +394,9 @@ def download_submissions(
                 console.print(f"[yellow]  Warning: {assign['name']}: {exc}[/yellow]")
                 progress.advance(task)
                 continue
+
+            if ungraded_only:
+                submissions = [s for s in submissions if is_ungraded(s)]
 
             for sub in submissions:
                 uid = sub["user_id"]

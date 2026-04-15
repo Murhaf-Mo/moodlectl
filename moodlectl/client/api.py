@@ -318,6 +318,9 @@ class MoodleAPI(MoodleClientBase):
             # col 4 (c4): submission status
             status_text = cols[4].get_text(strip=True)
 
+            # col 5 (c5): grading status — "Graded", "Not graded", etc.
+            grading_status = cols[5].get_text(strip=True) if len(cols) > 5 else ""
+
             # col 8 (c8): file submissions
             file_cell = cols[8]
             files = []
@@ -337,6 +340,7 @@ class MoodleAPI(MoodleClientBase):
                 "fullname": fullname,
                 "email": email,
                 "status": status_text,
+                "grading_status": grading_status,
                 "files": files,
             })
 

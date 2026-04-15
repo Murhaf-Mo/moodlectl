@@ -42,7 +42,7 @@ CLI command → features/ function → MoodleClient method → HTTP
 - `get_grade_form_fragment(context_id, user_id)` — calls `core_get_fragment` with `mod_assign/gradingpanel` to get a fresh form field dict including a one-time `itemid`; also parses `grade_max` from label "Grade out of X"
 - `submit_grade_for_user(cmid, user_id, grade, feedback, notify_student)` — orchestrates the full grade submission: resolves IDs → loads fresh fragment → serializes form → calls `mod_assign_submit_grading_form`; returns `grade_max`
 - `get_course_assignments(course_id)` — scrapes `/mod/assign/index.php?id={course_id}`; returns `{cmid, name, due_text, submitted_count}` per assignment
-- `get_assignment_submissions(cmid)` — scrapes `/mod/assign/view.php?id={cmid}&action=grading&perpage=1000`; returns `{user_id, fullname, email, status, files:[{filename,url}]}` for submitted entries only (col 8 = file links)
+- `get_assignment_submissions(cmid)` — scrapes `/mod/assign/view.php?id={cmid}&action=grading&perpage=1000`; returns `{user_id, fullname, email, status, grading_status, files:[{filename,url}]}` for submitted entries only (col 8 = file links, col 5 = grading status). `grading_status` contains the grade value (e.g. `"Grade10.00 / 10.00"`) when graded, or `"-"` / empty when not yet graded.
 - `download_file(url, dest_path)` — authenticated file download via session; rewrites `webservice/pluginfile.php` → `pluginfile.php` for session-cookie auth
 - `send_message()` — AJAX
 
@@ -85,10 +85,18 @@ The grade scale ("out of X") is parsed from the label "Grade out of X" in the fr
 ### Assignment downloads and visibility
 `features/assignments.py` public functions:
 - `list_assignments(client, course_ids, status)` — `status` is `active` (future due date or none), `past`, or `all`. Due dates are parsed from Moodle text format `"%A, %d %B %Y, %I:%M %p"`.
-- `download_submissions(client, course_ids, course_map, status, out_dir)` — downloads to `{out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file`. `course_map` is `{course_id: course_dict}` from `get_courses()`.
+- `download_submissions(client, course_ids, course_map, status, out_dir, ungraded_only)` — downloads to `{out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file`. Pass `ungraded_only=True` to skip already-graded submissions. `course_map` is `{course_id: course_dict}` from `get_courses()`.
 - `get_missing_submissions(client, cmid, course_id)` — returns students enrolled as `student` role who have no entry in `get_assignment_submissions(cmid)`; used by `assignments missing`.
+- `get_all_missing_submissions(client, course_ids, course_map, status)` — bulk version of above; iterates all assignments across all courses, caches participants per course to avoid redundant requests. Returns flat list with `{course, assignment, assignment_status, due_date, user_id, fullname, email, lastaccess}`.
+- `get_all_ungraded_submissions(client, course_ids, course_map, status)` — scans all assignments across all courses and returns submitted entries where `grading_status` contains no digits (i.e. no grade entered yet). Returns `{course, assignment, assignment_status, due_date, user_id, fullname, email, grading_status, files}`.
+- `is_ungraded(submission)` — returns `True` if the submission dict has no numeric digits in `grading_status`. Moodle puts the grade value (e.g. `"Grade10.00 / 10.00"`) in that field when graded; absence of digits means ungraded.
 
-CLI commands `assignments submissions` and `assignments missing` call the client/features directly without downloading any files.
+CLI commands:
+- `assignments submissions` — accepts `--ungraded` to filter to ungraded only; shows `grading_status` column.
+- `assignments missing` — single assignment, requires `--assignment` and `--course`.
+- `assignments missing-all` — bulk across all courses; supports `--course` (repeatable), `--status`, `--output`.
+- `assignments ungraded-all` — bulk ungraded list across all courses; supports `--course`, `--status`, `--output`.
+- `assignments download` — accepts `--ungraded` to download only submissions not yet graded.
 
 `_safe_name()` strips filesystem-illegal characters and limits to 80 chars. The CLI resolves course IDs from `get_courses()` when `--course` is omitted. Assignments with `submitted_count == 0` are skipped without scraping the grading page.
 

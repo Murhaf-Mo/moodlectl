@@ -50,6 +50,7 @@ def list_assignments(
     for a in assignments:
         course_info = course_map.get(a["course_id"], {})
         rows.append({
+            "cmid": a["cmid"],
             "course": course_info.get("shortname", str(a["course_id"])),
             "assignment": a["name"],
             "status": a["status"],
@@ -57,21 +58,24 @@ def list_assignments(
             "submitted": a["submitted_count"],
         })
 
-    print_table(rows, columns=["course", "assignment", "status", "due_date", "submitted"], fmt=output)
+    print_table(rows, columns=["cmid", "course", "assignment", "status", "due_date", "submitted"], fmt=output)
 
 
 @app.command("submissions")
 def list_submissions(
     cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
+    ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet"),
     output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
 ):
     """List who submitted an assignment and which files they uploaded — no downloads.
 
-    Shows student name, email, submission status, and filenames.
+    Shows student name, email, submission status, grading status, and filenames.
+    Use --ungraded to filter to submissions that still need grading.
     Use --output csv to export the list.
 
     Examples:
       moodlectl assignments submissions --assignment 18002
+      moodlectl assignments submissions --assignment 18002 --ungraded
       moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
     """
     client = MoodleClient.from_config(Config.load())
@@ -82,8 +86,12 @@ def list_submissions(
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 
+    if ungraded:
+        submissions = [s for s in submissions if assignments_feature.is_ungraded(s)]
+
     if not submissions:
-        console.print("[yellow]No submissions found.[/yellow]")
+        msg = "[yellow]No ungraded submissions found.[/yellow]" if ungraded else "[yellow]No submissions found.[/yellow]"
+        console.print(msg)
         raise typer.Exit()
 
     rows = []
@@ -94,10 +102,11 @@ def list_submissions(
             "fullname": s["fullname"],
             "email": s["email"],
             "status": s["status"],
+            "grading_status": s.get("grading_status", ""),
             "files": filenames,
         })
 
-    print_table(rows, columns=["user_id", "fullname", "email", "status", "files"], fmt=output)
+    print_table(rows, columns=["user_id", "fullname", "email", "status", "grading_status", "files"], fmt=output)
 
 
 @app.command("missing")
@@ -131,6 +140,155 @@ def missing_submissions(
     print_table(missing, columns=["user_id", "fullname", "email", "lastaccess"], fmt=output)
 
 
+@app.command("ungraded-all")
+def ungraded_all_submissions(
+    course: list[int] = typer.Option(
+        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+    ),
+    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+):
+    """List all submitted assignments that have not been graded yet, across all courses.
+
+    Use --status to narrow to past or active assignments.
+
+    Examples:
+      moodlectl assignments ungraded-all
+      moodlectl assignments ungraded-all --status past
+      moodlectl assignments ungraded-all --course 590
+      moodlectl assignments ungraded-all --output csv > ungraded.csv
+    """
+    client, course_ids, course_map = _load(tuple(course or []))
+
+    ungraded = assignments_feature.get_all_ungraded_submissions(
+        client, course_ids, course_map=course_map, status=status
+    )
+
+    if not ungraded:
+        console.print("[green]All submissions are graded.[/green]")
+        raise typer.Exit()
+
+    console.print(f"\n[yellow]{len(ungraded)} ungraded submission(s) found.[/yellow]\n")
+    print_table(
+        ungraded,
+        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email", "grading_status", "files"],
+        fmt=output,
+    )
+
+
+@app.command("missing-all")
+def missing_all_submissions(
+    course: list[int] = typer.Option(
+        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+    ),
+    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+):
+    """Show all students who have NOT submitted across all courses and assignments.
+
+    Use --status to narrow to past (already due) or active (not due yet) assignments.
+
+    Examples:
+      moodlectl assignments missing-all
+      moodlectl assignments missing-all --status past
+      moodlectl assignments missing-all --course 590 --status active
+      moodlectl assignments missing-all --output csv > missing.csv
+    """
+    client, course_ids, course_map = _load(tuple(course or []))
+
+    missing = assignments_feature.get_all_missing_submissions(
+        client, course_ids, course_map=course_map, status=status
+    )
+
+    if not missing:
+        console.print("[green]No missing submissions found.[/green]")
+        raise typer.Exit()
+
+    console.print(f"\n[yellow]{len(missing)} missing submission(s) found.[/yellow]\n")
+    print_table(
+        missing,
+        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email", "lastaccess"],
+        fmt=output,
+    )
+
+
+@app.command("info")
+def assignment_info(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
+):
+    """Show full details for an assignment: cmid, grade scale, due date, submission count.
+
+    Fetches the grade max by reading the grading form from the first submission.
+
+    Examples:
+      moodlectl assignments info --assignment 18002
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    # Resolve internal IDs
+    try:
+        assignment_id, context_id = client.get_assignment_internal_id(cmid)
+    except Exception as exc:
+        console.print(f"[red]Could not resolve assignment IDs:[/red] {exc}")
+        raise typer.Exit(1)
+
+    # Get grade_max from the grading fragment using the first submitter
+    grade_max = None
+    try:
+        submissions = client.get_assignment_submissions(cmid)
+        if submissions:
+            first_user_id = submissions[0]["user_id"]
+            fragment = client.get_grade_form_fragment(context_id, first_user_id)
+            grade_max = fragment.get("__grade_max__") or None
+    except Exception:
+        pass  # grade_max stays None if we can't fetch it
+
+    # Find assignment metadata from courses
+    all_courses = client.get_courses()
+    course_map = {c["id"]: c for c in all_courses}
+    meta = None
+    for cid in course_map:
+        try:
+            for a in client.get_course_assignments(cid):
+                if a["cmid"] == cmid:
+                    meta = {**a, "course_id": cid}
+                    break
+        except Exception:
+            continue
+        if meta:
+            break
+
+    course_info = course_map.get(meta["course_id"], {}) if meta else {}
+
+    rows = [{
+        "field": "cmid",
+        "value": str(cmid),
+    }, {
+        "field": "assignment_id",
+        "value": str(assignment_id),
+    }, {
+        "field": "context_id",
+        "value": str(context_id),
+    }, {
+        "field": "course",
+        "value": course_info.get("shortname", "unknown"),
+    }, {
+        "field": "name",
+        "value": meta["name"] if meta else "unknown",
+    }, {
+        "field": "due_date",
+        "value": (meta["due_text"] or "No due date") if meta else "unknown",
+    }, {
+        "field": "submitted",
+        "value": str(meta["submitted_count"]) if meta else "unknown",
+    }, {
+        "field": "grade_max",
+        "value": str(grade_max) if grade_max is not None else "unknown",
+    }]
+
+    print_table(rows, columns=["field", "value"], fmt="table")
+
+
 @app.command("download")
 def download_submissions(
     course: list[int] = typer.Option(
@@ -138,16 +296,20 @@ def download_submissions(
     ),
     status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
     out: Path = typer.Option(Path("assignments"), "--out", help="Output directory"),
+    ungraded: bool = typer.Option(False, "--ungraded", help="Download only submissions that have not been graded yet"),
 ):
     """Download submitted assignment files, organised by course and status.
 
     Output layout:
       {out}/{course}/{active|past}/{assignment}/{student_name_id}/file.pdf
 
+    Use --ungraded to only download files from students who still need grading.
+
     Examples:
       moodlectl assignments download
       moodlectl assignments download --course 568 --status active
       moodlectl assignments download --course 568 --status past --out ./archive
+      moodlectl assignments download --ungraded
     """
     client, course_ids, course_map = _load(tuple(course or []))
 
@@ -157,4 +319,5 @@ def download_submissions(
         course_map=course_map,
         status=status,
         out_dir=out,
+        ungraded_only=ungraded,
     )
