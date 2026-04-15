@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional, cast
+
 import typer
 from rich.console import Console
 
@@ -7,6 +9,7 @@ from moodlectl.client import MoodleClient
 from moodlectl.config import Config
 from moodlectl.features import grades as grades_feature
 from moodlectl.output.formatters import print_table
+from moodlectl.types import CourseId, GradeReport, OutputFmt
 
 app = typer.Typer(help="Grade report commands — view and analyse student grades.")
 console = Console()
@@ -14,7 +17,7 @@ console = Console()
 
 @app.command("show")
 def show_grades(
-    course: int = typer.Option(None, "--course", help="Course ID. Omit to show all enrolled courses."),
+    course: Optional[int] = typer.Option(None, "--course", help="Course ID. Omit to show all enrolled courses."),
     name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)."),
     full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table."),
     cards: bool = typer.Option(False, "--cards", help="Show one panel per student listing all grade items."),
@@ -40,26 +43,26 @@ def show_grades(
     """
     client = MoodleClient.from_config(Config.load())
 
-    course_ids = [course] if course is not None else [c["id"] for c in client.get_courses()]
+    course_ids = [CourseId(course)] if course is not None else [c["id"] for c in client.get_courses()]
 
-    reports = []
+    reports: list[tuple[CourseId, GradeReport]] = []
     for cid in course_ids:
         report = grades_feature.get_grade_report(client, cid, name=name)
         reports.append((cid, report))
 
     # For multi-course csv/json, merge all rows into one flat list
     if output != "table" and len(reports) > 1:
-        all_rows: list[dict] = []
+        all_rows: list[dict[str, str | int]] = []
         for cid, report in reports:
             for row in report["rows"]:
                 all_rows.append({"course_id": cid, **row})
         if all_rows:
             cols = ["course_id", "fullname", "email"] + reports[0][1]["columns"][2:]
-            print_table(all_rows, columns=cols, fmt=output)
+            print_table(all_rows, columns=cols, fmt=cast(OutputFmt, output))
         return
 
     for cid, report in reports:
-        _print_report(console, report, cid if course is None else None, full, cards, output, grades_feature)
+        _print_report(console, report, cid if course is None else None, full, cards, cast(OutputFmt, output))
 
 
 @app.command("stats")
@@ -79,19 +82,19 @@ def grade_stats(
     client = MoodleClient.from_config(Config.load())
 
     try:
-        report = grades_feature.get_grade_report(client, course, name=name)
+        report = grades_feature.get_grade_report(client, CourseId(course), name=name)
     except RuntimeError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 
     stats = grades_feature.compute_stats(report)
 
-    if not stats or stats.get("count", 0) == 0:
+    if stats["count"] == 0:
         console.print("[yellow]No numeric grades found in the course total column.[/yellow]")
         raise typer.Exit()
 
     console.print(f"\n[bold]Grade statistics — {stats['column']}[/bold]\n")
-    rows = [
+    rows: list[dict[str, str]] = [
         {"metric": "Students",       "value": str(stats["count"])},
         {"metric": "Mean",           "value": str(stats["mean"])},
         {"metric": "Median",         "value": str(stats["median"])},
@@ -104,7 +107,14 @@ def grade_stats(
 
 # ── internal helpers ──────────────────────────────────────────────────────────
 
-def _print_report(console, report, course_id, full, cards, output, grades_feature):
+def _print_report(
+    console: Console,
+    report: GradeReport,
+    course_id: CourseId | None,
+    full: bool,
+    cards: bool,
+    output: OutputFmt,
+) -> None:
     """Render a single course grade report in the requested display mode."""
     rows = report["rows"]
     columns = report["columns"]
@@ -125,17 +135,17 @@ def _print_report(console, report, course_id, full, cards, output, grades_featur
         print_table(rows, columns=["fullname", "email"] + grade_cols, fmt=output)
         return
 
-    col_map = grades_feature.shorten_columns(grade_cols, max_len=50 if (full or cards) else 22)
+    col_map: dict[str, str] = grades_feature.shorten_columns(grade_cols, max_len=50 if (full or cards) else 22)
 
-    display_rows = []
+    display_rows: list[dict[str, str | int]] = []
     for row in rows:
-        d = {"fullname": row["fullname"]}
+        d: dict[str, str | int] = {"fullname": str(row.get("fullname", ""))}
         for orig, short in col_map.items():
-            d[short] = row.get(orig, "-")
+            d[short] = str(row.get(orig, "-"))
         display_rows.append(d)
 
-    all_short = list(col_map.values())
-    short_total = col_map.get(total_col, total_col)
+    all_short: list[str] = list(col_map.values())
+    short_total: str = col_map.get(total_col, total_col)
 
     if cards:
         from rich.panel import Panel
@@ -146,10 +156,10 @@ def _print_report(console, report, course_id, full, cards, output, grades_featur
             tbl.add_column("Item", style="dim", min_width=30)
             tbl.add_column("Score", justify="right")
             for orig, short in col_map.items():
-                score = row.get(short, "-")
+                score = str(row.get(short, "-"))
                 style = "bold green" if short == short_total else ""
                 tbl.add_row(short, f"[{style}]{score}[/{style}]" if style else score)
-            console.print(Panel(tbl, title=f"[bold]{row['fullname']}[/bold]", expand=False))
+            console.print(Panel(tbl, title=f"[bold]{row.get('fullname', '')}[/bold]", expand=False))
 
     elif full:
         print_table(display_rows, columns=["fullname"] + all_short, fmt="table")

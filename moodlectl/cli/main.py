@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import sys
+
 import typer
 
 # Force UTF-8 stdout so Arabic/Unicode in assignment names and course names
 # don't crash on Windows terminals that default to cp1252.
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
 from moodlectl.cli import assignments, auth, courses, grades, grading, messages, reports
 

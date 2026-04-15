@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
+from typing import Self
 
 import requests
 
 from moodlectl.config import Config
+from moodlectl.types import JSON
 
 
 class MoodleClientBase:
@@ -12,7 +14,7 @@ class MoodleClientBase:
         self.base_url = base_url
         self.sesskey = sesskey
         self._session = requests.Session()
-        self._session.cookies.set("MoodleSession", session_cookie)
+        self._session.cookies.set("MoodleSession", session_cookie)  # type: ignore[no-untyped-call]
         self._session.headers.update({
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -25,7 +27,7 @@ class MoodleClientBase:
         })
 
     @classmethod
-    def from_config(cls, config: Config) -> "MoodleClientBase":
+    def from_config(cls, config: Config) -> Self:
         return cls(config.base_url, config.moodle_session, config.moodle_sesskey)
 
     def refresh_sesskey(self) -> None:
@@ -40,7 +42,7 @@ class MoodleClientBase:
                 "Re-login in your browser and update MOODLE_SESSION in .env"
             )
 
-    def ajax(self, methodname: str, args: dict) -> dict | list:
+    def ajax(self, methodname: str, args: dict[str, JSON]) -> JSON:
         resp = self._session.post(
             f"{self.base_url}/lib/ajax/service.php",
             params={"sesskey": self.sesskey, "info": methodname},
@@ -63,4 +65,4 @@ class MoodleClientBase:
         if result[0].get("error"):
             raise RuntimeError(result[0]["exception"]["message"])
 
-        return result[0]["data"]
+        return result[0]["data"]  # type: ignore[no-any-return]

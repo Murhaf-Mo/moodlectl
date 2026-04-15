@@ -10,10 +10,15 @@ class AIClient:
         self._client = anthropic.Anthropic(api_key=api_key)
 
     def complete(self, system: str, user: str, model: str = "claude-sonnet-4-6") -> str:
+        import anthropic
         message = self._client.messages.create(
             model=model,
             max_tokens=2048,
             system=system,
             messages=[{"role": "user", "content": user}],
         )
-        return message.content[0].text
+        # Narrow to TextBlock — only that block type carries a .text attribute
+        for block in message.content:
+            if isinstance(block, anthropic.types.TextBlock):
+                return block.text
+        raise RuntimeError("Claude response contained no text block")

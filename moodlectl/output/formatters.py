@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 
 from rich.console import Console
 from rich.table import Table
+
+from moodlectl.types import OutputFmt
 
 # legacy_windows=False forces Rich to use ANSI escape codes rather than the
 # Win32 console API, which only supports cp1252 and breaks on Arabic/Unicode.
 console = Console(legacy_windows=False)
 
 
-def print_table(data: list[dict], columns: list[str], fmt: str = "table") -> None:
+def print_table(data: Sequence[Mapping[str, object]], columns: list[str], fmt: OutputFmt = "table") -> None:
     if not data:
         console.print("[yellow]No data.[/yellow]")
         return

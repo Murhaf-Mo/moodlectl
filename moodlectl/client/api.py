@@ -2,19 +2,56 @@ from __future__ import annotations
 
 import json
 import re
+from typing import cast
 from urllib.parse import urlencode
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from moodlectl.client.base import MoodleClientBase
+from moodlectl.types import (
+    JSON,
+    AssignmentMeta,
+    Cmid,
+    Course,
+    CourseId,
+    FileRef,
+    FormFields,
+    GradeReport,
+    Participant,
+    Submission,
+    UserId,
+)
 
 # Shown whenever an HTTP response redirects to the login page.
 _SESSION_EXPIRED = "Re-login in your browser and update MOODLE_SESSION in .env"
 
 
+# ── BeautifulSoup attribute helpers ──────────────────────────────────────────
+# BS4's type stubs type tag attributes as str | list[str] (_AttributeValue).
+# These helpers narrow the result to the concrete types we actually need.
+
+def _attr(tag: Tag, name: str, default: str = "") -> str:
+    """Return a tag attribute as a plain string."""
+    val = tag.get(name)
+    return str(val) if val is not None else default
+
+
+def _int_attr(tag: Tag, name: str) -> int:
+    """Return a tag attribute as an integer (raises ValueError if not numeric)."""
+    return int(str(tag[name]))
+
+
+def _classes(tag: Tag) -> list[str]:
+    """Return the tag's class list as a list of strings."""
+    val = tag.get("class")
+    if isinstance(val, list):
+        return [str(c) for c in val]
+    return []
+
+
 class MoodleAPI(MoodleClientBase):
 
-    def _get_soup(self, url: str, params: dict | None = None, context: str = "") -> BeautifulSoup:
+    def _get_soup(self, url: str, params: dict[str, str | int] | None = None, context: str = "") -> BeautifulSoup:
         """GET a Moodle page, check for session expiry, and return a parsed BeautifulSoup.
 
         Raises RuntimeError with a clear message if the response redirects to login.
@@ -30,8 +67,8 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Courses ───────────────────────────────────────────────────────────────
 
-    def get_courses(self, classification: str = "all", sort: str = "fullname") -> list[dict]:
-        data = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
+    def get_courses(self, classification: str = "all", sort: str = "fullname") -> list[Course]:
+        raw = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
             "offset": 0,
             "limit": 0,
             "classification": classification,
@@ -40,11 +77,12 @@ class MoodleAPI(MoodleClientBase):
             "customfieldvalue": "",
             "requiredfields": ["id", "fullname", "shortname", "visible", "enddate"],
         })
+        data = cast(dict[str, list[Course]], raw)
         return data["courses"]
 
     # ── Participants ──────────────────────────────────────────────────────────
 
-    def get_course_participants(self, course_id: int) -> list[dict]:
+    def get_course_participants(self, course_id: CourseId) -> list[Participant]:
         """Scrape the participants page for a course.
 
         Table columns: [checkbox, fullname, email, roles, groups, lastaccess, status]
@@ -59,31 +97,40 @@ class MoodleAPI(MoodleClientBase):
         if not table:
             return []
 
-        participants = []
-        for row in table.find("tbody").find_all("tr"):
+        tbody = table.find("tbody")
+        if not tbody:
+            return []
+
+        participants: list[Participant] = []
+        for row in tbody.find_all("tr"):
             cols = row.find_all(["td", "th"])
             if len(cols) < 3:
                 continue
 
             # User ID from checkbox input id e.g. id="user1557"
             checkbox = cols[0].find("input")
-            user_id = 0
-            if checkbox and checkbox.get("id", "").startswith("user"):
-                try:
-                    user_id = int(checkbox["id"].replace("user", ""))
-                except ValueError:
-                    pass
+            user_id: UserId | None = None
+            if checkbox:
+                cid_attr = _attr(checkbox, "id")
+                if cid_attr.startswith("user"):
+                    try:
+                        user_id = UserId(int(cid_attr.replace("user", "")))
+                    except ValueError:
+                        pass
 
             # Fullname: strip the avatar initials (first 2 chars like "AA")
             name_link = cols[1].find("a")
-            fullname = name_link.get_text(strip=True)[2:] if name_link else cols[1].get_text(strip=True)
+            if name_link:
+                fullname = name_link.get_text(strip=True)[2:]
+            else:
+                fullname = cols[1].get_text(strip=True)
 
             email = cols[2].get_text(strip=True) if len(cols) > 2 else ""
             roles = cols[3].get_text(strip=True) if len(cols) > 3 else ""
             lastaccess = cols[5].get_text(strip=True) if len(cols) > 5 else ""
             status = cols[6].get_text(strip=True) if len(cols) > 6 else ""
 
-            if not fullname or user_id == 0:
+            if not fullname or user_id is None:
                 continue
 
             participants.append({
@@ -99,13 +146,13 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Grades ────────────────────────────────────────────────────────────────
 
-    def get_grade_report(self, course_id: int) -> dict:
+    def get_grade_report(self, course_id: CourseId) -> GradeReport:
         """Scrape the grader report (teacher view) for a course, all pages.
 
         Returns {"columns": [...], "rows": [{"id", "fullname", "email", col: grade, ...}]}
         """
         columns: list[str] = []
-        all_student_rows: list = []
+        all_student_rows: list[dict[str, str | int]] = []
         page = 0
 
         while True:
@@ -124,13 +171,13 @@ class MoodleAPI(MoodleClientBase):
             # Parse column headers once (from first page only)
             if not columns:
                 heading_row = next(
-                    (r for r in all_rows if "heading" in r.get("class", [])), None
+                    (r for r in all_rows if "heading" in _classes(r)), None
                 )
                 if heading_row:
                     for th in heading_row.find_all(["th", "td"]):
                         name = None
                         for a in th.find_all("a"):
-                            title = a.get("title", "")
+                            title = _attr(a, "title")
                             if title.startswith("Link to"):
                                 name = re.sub(r"^Link to \S+ activity ", "", title).strip()
                                 break
@@ -155,7 +202,7 @@ class MoodleAPI(MoodleClientBase):
                 email = cols[1].get_text(strip=True) if len(cols) > 1 else ""
 
                 grades: dict[str, str] = {}
-                grade_cells = [c for c in cols[2:] if "gradecell" in " ".join(c.get("class", []))]
+                grade_cells = [c for c in cols[2:] if "gradecell" in " ".join(_classes(c))]
                 for i, cell in enumerate(grade_cells):
                     col_name = columns[i + 2] if i + 2 < len(columns) else f"item_{i}"
                     raw_val = cell.get_text(strip=True)
@@ -164,11 +211,16 @@ class MoodleAPI(MoodleClientBase):
 
                 total_col = columns[-1] if columns else "Course total"
                 total_cell = next(
-                    (c for c in reversed(cols) if "course" in " ".join(c.get("class", []))), None
+                    (c for c in reversed(cols) if "course" in " ".join(_classes(c))), None
                 )
                 total = re.sub(r"\s+", "", total_cell.get_text(strip=True)) if total_cell else "-"
 
-                row = {"id": int(tr["data-uid"]), "fullname": fullname, "email": email, **grades}
+                row: dict[str, str | int] = {
+                    "id": _int_attr(tr, "data-uid"),
+                    "fullname": fullname,
+                    "email": email,
+                    **grades,
+                }
                 row[total_col] = total
                 all_student_rows.append(row)
 
@@ -181,7 +233,7 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Assignments ───────────────────────────────────────────────────────────
 
-    def get_course_assignments(self, course_id: int) -> list[dict]:
+    def get_course_assignments(self, course_id: CourseId) -> list[AssignmentMeta]:
         """Scrape the assignment index page for a course.
 
         Returns list of:
@@ -201,7 +253,7 @@ class MoodleAPI(MoodleClientBase):
         if not tbody:
             return []
 
-        assignments = []
+        assignments: list[AssignmentMeta] = []
         for row in tbody.find_all("tr"):
             cols = row.find_all(["td", "th"])
             if len(cols) < 3:
@@ -213,11 +265,11 @@ class MoodleAPI(MoodleClientBase):
             if not link:
                 continue
             name = link.get_text(strip=True)
-            href = link.get("href", "")
+            href = _attr(link, "href")
             m = re.search(r"[?&]id=(\d+)", href)
             if not m:
                 continue
-            cmid = int(m.group(1))
+            cmid = Cmid(int(m.group(1)))
 
             due_text = cols[2].get_text(strip=True) if len(cols) > 2 else ""
 
@@ -237,7 +289,7 @@ class MoodleAPI(MoodleClientBase):
 
         return assignments
 
-    def get_assignment_brief_files(self, cmid: int) -> list[dict]:
+    def get_assignment_brief_files(self, cmid: Cmid) -> list[FileRef]:
         """Scrape the assignment view page for instructor-attached brief files.
 
         Returns list of {filename, url} for files attached to the assignment description.
@@ -248,16 +300,16 @@ class MoodleAPI(MoodleClientBase):
             context=f"assignment {cmid}",
         )
 
-        files = []
+        files: list[FileRef] = []
         for a in soup.find_all("a", href=True):
-            href = a["href"]
+            href = _attr(a, "href")
             if "pluginfile.php" in href and "mod_assign/introattachment" in href:
                 filename = a.get_text(strip=True)
                 if filename:
                     files.append({"filename": filename, "url": href})
         return files
 
-    def get_assignment_submissions(self, cmid: int) -> list[dict]:
+    def get_assignment_submissions(self, cmid: Cmid) -> list[Submission]:
         """Scrape the grading page for an assignment.
 
         Returns list of:
@@ -279,7 +331,7 @@ class MoodleAPI(MoodleClientBase):
         if not tbody:
             return []
 
-        results = []
+        results: list[Submission] = []
         for row in tbody.find_all("tr"):
             cols = row.find_all(["td", "th"])
             if len(cols) < 9:
@@ -288,14 +340,14 @@ class MoodleAPI(MoodleClientBase):
             # col 2: fullname + link with user_id
             name_cell = cols[2]
             fullname = name_cell.get_text(strip=True)
-            user_id = 0
+            user_id: UserId | None = None
             profile_link = name_cell.find("a")
             if profile_link:
-                m = re.search(r"[?&]id=(\d+)", profile_link.get("href", ""))
+                m = re.search(r"[?&]id=(\d+)", _attr(profile_link, "href"))
                 if m:
-                    user_id = int(m.group(1))
+                    user_id = UserId(int(m.group(1)))
 
-            if not fullname or user_id == 0:
+            if not fullname or user_id is None:
                 continue
 
             email = cols[3].get_text(strip=True)
@@ -303,11 +355,11 @@ class MoodleAPI(MoodleClientBase):
             grading_status = cols[5].get_text(strip=True) if len(cols) > 5 else ""
 
             # col 8: file submissions
-            files = [
-                {"filename": a.get_text(strip=True), "url": a["href"]}
-                for a in cols[8].find_all("a")
-                if "pluginfile.php" in a.get("href", "")
-            ]
+            files: list[FileRef] = []
+            for a in cols[8].find_all("a"):
+                href = _attr(a, "href")
+                if "pluginfile.php" in href:
+                    files.append({"filename": a.get_text(strip=True), "url": href})
 
             if not files:
                 continue
@@ -323,7 +375,7 @@ class MoodleAPI(MoodleClientBase):
 
         return results
 
-    def get_assignment_internal_id(self, cmid: int) -> tuple[int, int]:
+    def get_assignment_internal_id(self, cmid: Cmid) -> tuple[int, int]:
         """Return (internal_assignment_id, context_id) for a given cmid.
 
         These IDs are needed for grade submission and differ from the cmid.
@@ -338,18 +390,18 @@ class MoodleAPI(MoodleClientBase):
         grade_div = soup.find(attrs={"data-region": "grade"})
         if not grade_div:
             raise RuntimeError(f"Could not find grade panel for cmid={cmid}")
-        assignment_id = int(grade_div["data-assignmentid"])
-        context_id = int(grade_div["data-contextid"])
+        assignment_id = _int_attr(grade_div, "data-assignmentid")
+        context_id = _int_attr(grade_div, "data-contextid")
         return assignment_id, context_id
 
-    def get_grade_form_fragment(self, context_id: int, user_id: int) -> dict:
+    def get_grade_form_fragment(self, context_id: int, user_id: UserId) -> FormFields:
         """Load the grading form fragment for a student.
 
         Returns the raw form field dict (as parsed from the fragment HTML).
         The itemid for the feedback editor changes per request — always fetch
         a fresh fragment immediately before submitting.
         """
-        result = self.ajax("core_get_fragment", {
+        raw = self.ajax("core_get_fragment", {
             "component": "mod_assign",
             "callback": "gradingpanel",
             "contextid": context_id,
@@ -359,41 +411,38 @@ class MoodleAPI(MoodleClientBase):
                 {"name": "jsonformdata", "value": ""},
             ],
         })
+        result = cast(dict[str, str], raw)
         html = result.get("html", "")
         soup = BeautifulSoup(html, "html.parser")
 
-        fields: dict[str, str] = {}
+        fields: FormFields = {}
         for el in soup.find_all(["input", "textarea", "select"]):
-            name = el.get("name", "")
+            name = _attr(el, "name")
             if not name:
                 continue
             if el.name == "textarea":
                 fields[name] = el.get_text()
             elif el.name == "select":
                 selected = el.find("option", selected=True)
-                fields[name] = selected.get("value", "") if selected else ""
+                fields[name] = _attr(selected, "value") if selected else ""
             else:
-                fields[name] = el.get("value", "")
+                fields[name] = _attr(el, "value")
 
         # Parse grade max from label text e.g. "Grade out of 10"
         label = soup.find("label", {"for": "id_grade"})
-        grade_max = None
+        grade_max: str = ""
         if label:
             m = re.search(r"out of\s+([\d.]+)", label.get_text(), re.IGNORECASE)
             if m:
-                grade_max = float(m.group(1))
+                grade_max = m.group(1)
 
-        fields["__grade_max__"] = str(grade_max) if grade_max else ""
+        fields["__grade_max__"] = grade_max
         return fields
-
-    def submit_grade(self, *args, **kwargs):
-        """Deprecated stub — use submit_grade_for_user instead."""
-        raise NotImplementedError("Use submit_grade_for_user instead")
 
     def submit_grade_for_user(
         self,
-        cmid: int,
-        user_id: int,
+        cmid: Cmid,
+        user_id: UserId,
         grade: float,
         feedback: str = "",
         notify_student: bool = False,
@@ -421,11 +470,12 @@ class MoodleAPI(MoodleClientBase):
         fields["sendstudentnotifications"] = "1" if notify_student else "0"
 
         # 4. Submit
-        result = self.ajax("mod_assign_submit_grading_form", {
+        raw = self.ajax("mod_assign_submit_grading_form", {
             "assignmentid": assignment_id,
             "userid": user_id,
             "jsonformdata": json.dumps(urlencode(fields)),
         })
+        result = cast(list[dict[str, str]], raw)
 
         # Empty list = success; non-empty list = validation errors
         if result:
@@ -434,7 +484,7 @@ class MoodleAPI(MoodleClientBase):
 
         return grade_max
 
-    def download_file(self, url: str, dest_path) -> None:
+    def download_file(self, url: str, dest_path: object) -> None:
         """Download an authenticated Moodle file (pluginfile.php) to dest_path.
 
         Rewrites webservice/pluginfile.php → pluginfile.php for session-cookie auth.
@@ -445,17 +495,17 @@ class MoodleAPI(MoodleClientBase):
         # using session auth — rewrite to the regular pluginfile.php path.
         url = url.replace("/webservice/pluginfile.php", "/pluginfile.php")
 
-        dest_path = Path(dest_path)
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        path = Path(str(dest_path))
+        path.parent.mkdir(parents=True, exist_ok=True)
         resp = self._session.get(url, stream=True)
         resp.raise_for_status()
-        with open(dest_path, "wb") as fh:
+        with open(path, "wb") as fh:
             for chunk in resp.iter_content(chunk_size=8192):
                 fh.write(chunk)
 
     # ── Messages ──────────────────────────────────────────────────────────────
 
-    def send_message(self, user_id: int, message: str) -> dict:
+    def send_message(self, user_id: UserId, message: str) -> JSON:
         return self.ajax("core_message_send_instant_messages", {
             "messages": [{"touserid": user_id, "text": message, "textformat": 1}],
         })

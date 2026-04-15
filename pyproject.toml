@@ -30,6 +30,14 @@ export = [
 [project.scripts]
 moodlectl = "moodlectl.cli.main:app"
 
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+# openpyxl is an optional dependency — suppress missing-source warning
+reportMissingModuleSource = "none"
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100

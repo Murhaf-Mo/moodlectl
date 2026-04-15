@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from moodlectl.client import MoodleClient
+from moodlectl.types import BatchResult, Cmid, GradeResult, MoodleClientProtocol, UserId
 
 
 def submit_grade(
-    client: MoodleClient,
-    cmid: int,
-    user_id: int,
+    client: MoodleClientProtocol,
+    cmid: Cmid,
+    user_id: UserId,
     grade: float,
     feedback: str = "",
     notify_student: bool = False,
-) -> dict:
+) -> GradeResult:
     """Submit a grade for one student on one assignment.
 
     Returns: {user_id, grade, grade_max, grade_pct, feedback}
@@ -34,11 +34,11 @@ def submit_grade(
 
 
 def batch_grade(
-    client: MoodleClient,
-    cmid: int,
-    rows: list[dict],
+    client: MoodleClientProtocol,
+    cmid: Cmid,
+    rows: list[dict[str, str | None]],
     dry_run: bool = False,
-) -> list[dict]:
+) -> list[BatchResult]:
     """Submit grades from a list of row dicts, each with user_id, grade, feedback.
 
     dry_run=True logs what would be submitted without writing anything to Moodle.
@@ -49,21 +49,22 @@ def batch_grade(
     where ok=True means success, ok=False means error (see 'error' field),
     and ok='(dry run)' means the row was validated but not submitted.
     """
-    results = []
+    results: list[BatchResult] = []
 
     for row in rows:
-        user_id = int(row["user_id"])
-        grade = float(row["grade"])
-        feedback = str(row.get("feedback", ""))
-        feedback_preview = feedback[:40] + ("…" if len(feedback) > 40 else "")
+        user_id = UserId(int(row["user_id"] or 0))
+        grade = float(row["grade"] or 0)
+        feedback = str(row.get("feedback") or "")
 
         if dry_run:
+            preview = feedback[:40] + ("…" if len(feedback) > 40 else "")
             results.append({
                 "user_id": user_id,
                 "grade": grade,
-                "feedback": feedback_preview,
+                "grade_max": "",
+                "grade_pct": None,
                 "ok": "(dry run)",
-                "error": "",
+                "error": preview,
             })
             continue
 

@@ -2,20 +2,27 @@ from __future__ import annotations
 
 import re
 
-from moodlectl.client import MoodleClient
+from moodlectl.types import (
+    Course,
+    CourseId,
+    CourseInactiveStudent,
+    InactiveStudent,
+    MoodleClientProtocol,
+    Participant,
+)
 
 
-def list_courses(client: MoodleClient) -> list[dict]:
+def list_courses(client: MoodleClientProtocol) -> list[Course]:
     """Return all enrolled courses from the Moodle API."""
     return client.get_courses()
 
 
 def get_participants(
-    client: MoodleClient,
-    course_id: int,
+    client: MoodleClientProtocol,
+    course_id: CourseId,
     role: str = "",
     name: str = "",
-) -> list[dict]:
+) -> list[Participant]:
     """Return participants for a course, optionally filtered by role and name.
 
     role: case-insensitive substring match on the roles field (e.g. "student")
@@ -31,30 +38,30 @@ def get_participants(
 
 
 def get_all_participants(
-    client: MoodleClient,
+    client: MoodleClientProtocol,
     role: str = "",
     name: str = "",
-) -> dict[int, list[dict]]:
+) -> dict[CourseId, list[Participant]]:
     """Return participants for every enrolled course, keyed by course ID."""
     courses = list_courses(client)
     return {c["id"]: get_participants(client, c["id"], role=role, name=name) for c in courses}
 
 
 def get_inactive_students(
-    client: MoodleClient,
-    course_id: int,
+    client: MoodleClientProtocol,
+    course_id: CourseId,
     days: int = 14,
-) -> list[dict]:
+) -> list[InactiveStudent]:
     """Return students who have not accessed the course in at least `days` days.
 
     lastaccess is scraped as a human-readable string from Moodle ("3 days 14 hours",
     "Never", etc.) and parsed on a best-effort basis. Entries whose lastaccess text
-    cannot be parsed are included with inactive_days=None so nothing is silently dropped.
+    cannot be parsed are included with inactive_days="?" so nothing is silently dropped.
 
-    Each result: {course, user_id, fullname, email, lastaccess, inactive_days}
+    Each result: {user_id, fullname, email, lastaccess, inactive_days}
     """
     participants = get_participants(client, course_id, role="student")
-    results = []
+    results: list[InactiveStudent] = []
     for p in participants:
         last = p.get("lastaccess", "")
         inactive_days = _parse_lastaccess_days(last)
@@ -68,17 +75,15 @@ def get_inactive_students(
                 "inactive_days": inactive_days if inactive_days is not None else "?",
             })
     # Sort: parseable days descending (most inactive first), unknowns last
-    results.sort(
-        key=lambda r: (r["inactive_days"] == "?", -(r["inactive_days"] if r["inactive_days"] != "?" else 0))
-    )
+    results.sort(key=_inactive_sort_key)
     return results
 
 
 def get_all_inactive_students(
-    client: MoodleClient,
+    client: MoodleClientProtocol,
     days: int = 14,
-    course_ids: list[int] | None = None,
-) -> list[dict]:
+    course_ids: list[CourseId] | None = None,
+) -> list[CourseInactiveStudent]:
     """Return inactive students across all (or selected) courses.
 
     Fetches participants per course and filters by the same lastaccess threshold.
@@ -90,7 +95,7 @@ def get_all_inactive_students(
     if course_ids:
         all_courses = [c for c in all_courses if c["id"] in course_ids]
 
-    results = []
+    results: list[CourseInactiveStudent] = []
     for course in all_courses:
         cid = course["id"]
         shortname = course.get("shortname", str(cid))
@@ -109,10 +114,18 @@ def get_all_inactive_students(
                 })
 
     # Sort: most inactive first across all courses
-    results.sort(
-        key=lambda r: (r["inactive_days"] == "?", -(r["inactive_days"] if r["inactive_days"] != "?" else 0))
-    )
+    results.sort(key=_course_inactive_sort_key)
     return results
+
+
+def _inactive_sort_key(r: InactiveStudent) -> tuple[bool, int]:
+    d = r["inactive_days"]
+    return (True, 0) if isinstance(d, str) else (False, -d)
+
+
+def _course_inactive_sort_key(r: CourseInactiveStudent) -> tuple[bool, int]:
+    d = r["inactive_days"]
+    return (True, 0) if isinstance(d, str) else (False, -d)
 
 
 def _parse_lastaccess_days(text: str) -> int | None:
@@ -163,19 +176,11 @@ def _parse_lastaccess_days(text: str) -> int | None:
     return None
 
 
-def _normalise(user: dict) -> dict:
-    """Normalise a raw participant dict from the client into a consistent shape.
-
-    Handles both API format (roles as list of dicts) and scrape format (roles as string).
-    """
-    raw_roles = user.get("roles", "")
-    if isinstance(raw_roles, list):
-        roles = ", ".join(r["shortname"] for r in raw_roles) or "—"
-    else:
-        roles = str(raw_roles) if raw_roles else "—"
-
+def _normalise(user: Participant) -> Participant:
+    """Normalise a raw participant dict from the client into a consistent shape."""
+    roles = user.get("roles", "") or "—"
     return {
-        "id": user.get("id"),
+        "id": user["id"],
         "fullname": user.get("fullname", ""),
         "email": user.get("email", ""),
         "roles": roles,

@@ -3,8 +3,25 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
-from moodlectl.client import MoodleClient
+from moodlectl.types import (
+    AssignmentListing,
+    AssignmentStatus,
+    BulkReminderResult,
+    Cmid,
+    CourseId,
+    CourseMap,
+    DownloadResult,
+    DueSoon,
+    MissingResult,
+    MissingStudent,
+    MoodleClientProtocol,
+    Participant,
+    ReminderResult,
+    Submission,
+    UngradedResult,
+)
 
 # Moodle displays due dates in this format: "Thursday, 26 March 2026, 11:59 PM"
 _DUE_DATE_FMT = "%A, %d %B %Y, %I:%M %p"
@@ -26,10 +43,10 @@ def _safe_name(name: str) -> str:
 
 
 def list_assignments(
-    client: MoodleClient,
-    course_ids: list[int],
-    status: str = "all",
-) -> list[dict]:
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    status: AssignmentStatus = "all",
+) -> list[AssignmentListing]:
     """Return assignments across courses filtered by status.
 
     status values:
@@ -41,7 +58,7 @@ def list_assignments(
     submitted_count, status.
     """
     now = datetime.now()
-    results = []
+    results: list[AssignmentListing] = []
 
     for cid in course_ids:
         try:
@@ -52,6 +69,7 @@ def list_assignments(
 
         for assign in course_assignments:
             due_dt = _parse_due(assign["due_text"])
+            assign_status: Literal["active", "past"]
             if due_dt is None:
                 assign_status = "active"  # no parseable due date → treat as active
             elif due_dt > now:
@@ -76,10 +94,10 @@ def list_assignments(
 
 
 def get_missing_submissions(
-    client: MoodleClient,
-    cmid: int,
-    course_id: int,
-) -> list[dict]:
+    client: MoodleClientProtocol,
+    cmid: Cmid,
+    course_id: CourseId,
+) -> list[MissingStudent]:
     """Return students enrolled as students who have not submitted to cmid.
 
     Each result: {user_id, fullname, email, lastaccess}
@@ -88,7 +106,7 @@ def get_missing_submissions(
     submitted_ids = {s["user_id"] for s in submissions}
 
     participants = client.get_course_participants(course_id)
-    missing = []
+    missing: list[MissingStudent] = []
     for p in participants:
         roles = p.get("roles", "")
         if "student" not in roles.lower():
@@ -104,11 +122,11 @@ def get_missing_submissions(
 
 
 def get_all_missing_submissions(
-    client: MoodleClient,
-    course_ids: list[int],
-    course_map: dict[int, dict],
-    status: str = "all",
-) -> list[dict]:
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    course_map: CourseMap,
+    status: AssignmentStatus = "all",
+) -> list[MissingResult]:
     """Return all students who have not submitted across all given courses/assignments.
 
     Participants are cached per course to avoid redundant requests.
@@ -124,8 +142,8 @@ def get_all_missing_submissions(
     if not assignments:
         return []
 
-    participants_cache: dict[int, list[dict]] = {}
-    results: list[dict] = []
+    participants_cache: dict[int, list[Participant]] = {}
+    results: list[MissingResult] = []
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Scanning…", total=len(assignments))
@@ -133,7 +151,8 @@ def get_all_missing_submissions(
         for assign in assignments:
             cid = assign["course_id"]
             cmid = assign["cmid"]
-            course_info = course_map.get(cid, {})
+            course_info = course_map.get(cid)
+            course_short = course_info["shortname"] if course_info is not None else str(cid)
 
             progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
 
@@ -158,7 +177,7 @@ def get_all_missing_submissions(
                     continue
                 if p["id"] not in submitted_ids:
                     results.append({
-                        "course": course_info.get("shortname", str(cid)),
+                        "course": course_short,
                         "assignment": assign["name"],
                         "assignment_status": assign["status"],
                         "due_date": assign["due_text"] or "No due date",
@@ -173,22 +192,22 @@ def get_all_missing_submissions(
     return results
 
 
-def is_ungraded(submission: dict) -> bool:
+def is_ungraded(submission: Submission) -> bool:
     """Return True if the submission has not been graded yet.
 
     Moodle shows the actual grade value (e.g. "Grade5.00 / 5.00") when graded.
     Ungraded submissions show "-", empty string, or "Not graded" — no digits.
     """
-    gs = submission.get("grading_status", "")
+    gs = str(submission.get("grading_status", ""))
     return not bool(re.search(r"\d", gs))
 
 
 def get_all_ungraded_submissions(
-    client: MoodleClient,
-    course_ids: list[int],
-    course_map: dict[int, dict],
-    status: str = "all",
-) -> list[dict]:
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    course_map: CourseMap,
+    status: AssignmentStatus = "all",
+) -> list[UngradedResult]:
     """Return all submitted-but-ungraded entries across all given courses/assignments.
 
     Skips assignments with zero submissions to avoid unnecessary requests.
@@ -204,14 +223,15 @@ def get_all_ungraded_submissions(
     if not assignments:
         return []
 
-    results: list[dict] = []
+    results: list[UngradedResult] = []
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Scanning…", total=len(assignments))
 
         for assign in assignments:
             cid = assign["course_id"]
-            course_info = course_map.get(cid, {})
+            course_info = course_map.get(cid)
+            course_short = course_info["shortname"] if course_info is not None else str(cid)
 
             progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
 
@@ -231,7 +251,7 @@ def get_all_ungraded_submissions(
                 if is_ungraded(sub):
                     filenames = ", ".join(f["filename"] for f in sub["files"]) if sub["files"] else "—"
                     results.append({
-                        "course": course_info.get("shortname", str(cid)),
+                        "course": course_short,
                         "assignment": assign["name"],
                         "assignment_status": assign["status"],
                         "due_date": assign["due_text"] or "No due date",
@@ -248,18 +268,18 @@ def get_all_ungraded_submissions(
 
 
 def remind_missing_students(
-    client: MoodleClient,
-    cmid: int,
-    course_id: int,
+    client: MoodleClientProtocol,
+    cmid: Cmid,
+    course_id: CourseId,
     message_text: str,
-) -> list[dict]:
+) -> list[ReminderResult]:
     """Send a Moodle message to every student who has not submitted cmid.
 
-    Returns list of {user_id, fullname, email, sent} — sent=True means the
+    Returns list of {user_id, fullname, email, lastaccess, sent} — sent=True means the
     message was delivered without error.
     """
     missing = get_missing_submissions(client, cmid, course_id)
-    results = []
+    results: list[ReminderResult] = []
     for student in missing:
         try:
             client.send_message(student["user_id"], message_text)
@@ -270,12 +290,12 @@ def remind_missing_students(
 
 
 def remind_all_missing_students(
-    client: MoodleClient,
-    course_ids: list[int],
-    course_map: dict[int, dict],
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    course_map: CourseMap,
     message_text: str,
-    status: str = "all",
-) -> list[dict]:
+    status: AssignmentStatus = "all",
+) -> list[BulkReminderResult]:
     """Send a reminder to every student missing a submission, across all courses/assignments.
 
     Each student receives one message per assignment they haven't submitted.
@@ -286,14 +306,15 @@ def remind_all_missing_students(
 
     console = Console()
     assignments_list = list_assignments(client, course_ids, status=status)
-    results = []
+    results: list[BulkReminderResult] = []
 
     with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
         task = progress.add_task("Scanning…", total=len(assignments_list))
 
         for assign in assignments_list:
             cid = assign["course_id"]
-            course_info = course_map.get(cid, {})
+            course_info = course_map.get(cid)
+            course_short = course_info["shortname"] if course_info is not None else str(cid)
             progress.update(task, description=f"[cyan]{assign['name'][:50]}[/cyan]")
 
             try:
@@ -310,7 +331,7 @@ def remind_all_missing_students(
                 except Exception:
                     sent = False
                 results.append({
-                    "course": course_info.get("shortname", str(cid)),
+                    "course": course_short,
                     "assignment": assign["name"],
                     "user_id": student["user_id"],
                     "fullname": student["fullname"],
@@ -323,11 +344,11 @@ def remind_all_missing_students(
 
 
 def get_due_soon(
-    client: MoodleClient,
-    course_ids: list[int],
-    course_map: dict[int, dict],
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    course_map: CourseMap,
     days: int = 7,
-) -> list[dict]:
+) -> list[DueSoon]:
     """Return active assignments with a due date within the next `days` days.
 
     Assignments with no parseable due date are excluded.
@@ -338,7 +359,7 @@ def get_due_soon(
     cutoff = now + timedelta(days=days)
     assignments_list = list_assignments(client, course_ids, status="active")
 
-    results = []
+    results: list[DueSoon] = []
     for assign in assignments_list:
         due_dt = assign.get("due_dt")
         if due_dt is None:
@@ -346,10 +367,11 @@ def get_due_soon(
         if due_dt > cutoff:
             continue  # Due later than the requested window
 
-        course_info = course_map.get(assign["course_id"], {})
+        course_info = course_map.get(assign["course_id"])
+        course_short = course_info["shortname"] if course_info is not None else str(assign["course_id"])
         days_left = (due_dt - now).days
         results.append({
-            "course": course_info.get("shortname", str(assign["course_id"])),
+            "course": course_short,
             "cmid": assign["cmid"],
             "assignment": assign["name"],
             "due_date": assign["due_text"],
@@ -362,16 +384,16 @@ def get_due_soon(
 
 
 def download_submissions(
-    client: MoodleClient,
-    course_ids: list[int],
-    course_map: dict[int, dict],
-    status: str = "all",
+    client: MoodleClientProtocol,
+    course_ids: list[CourseId],
+    course_map: CourseMap,
+    status: AssignmentStatus = "all",
     out_dir: Path = Path("assignments"),
     ungraded_only: bool = False,
-) -> list[dict]:
+) -> list[DownloadResult]:
     """Download submitted files for all assignments in the given courses.
 
-    course_map: {course_id: {id, shortname, fullname}} — pass result of get_courses()
+    course_map: {course_id: Course} — pass result of get_courses() keyed by id
     Output layout:
         {out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file
 
@@ -395,7 +417,7 @@ def download_submissions(
         f"Fetching submission details…"
     )
 
-    results: list[dict] = []
+    results: list[DownloadResult] = []
     total_files = 0
 
     with Progress(
@@ -409,8 +431,8 @@ def download_submissions(
 
         for assign in assignments:
             cid = assign["course_id"]
-            course = course_map.get(cid, {})
-            course_short = _safe_name(course.get("shortname") or str(cid))
+            course_info = course_map.get(cid)
+            course_short = _safe_name(course_info["shortname"] if course_info is not None else str(cid))
             assign_dir = _safe_name(assign["name"])
 
             progress.update(task, description=f"[cyan]{assign['name'][:40]}[/cyan]")
@@ -449,24 +471,26 @@ def download_submissions(
                 student_dir = _safe_name(f"{fullname}_{uid}")
                 dest_dir = out_dir / course_short / assign["status"] / assign_dir / student_dir
 
-                dl_results = []
+                files_ok = 0
+                files_err = 0
                 for f in sub["files"]:
                     dest = dest_dir / _safe_name(f["filename"])
                     try:
                         client.download_file(f["url"], dest)
-                        dl_results.append({"filename": f["filename"], "ok": True})
+                        files_ok += 1
                         total_files += 1
                     except Exception as exc:
-                        dl_results.append({"filename": f["filename"], "ok": False, "error": str(exc)})
+                        files_err += 1
                         console.print(f"[red]  ✗ {f['filename']}: {exc}[/red]")
 
+                course_fullname = course_info["fullname"] if course_info is not None else str(cid)
                 results.append({
-                    "course": course.get("fullname", str(cid)),
+                    "course": course_fullname,
                     "assignment": assign["name"],
                     "student": fullname,
                     "student_id": uid,
-                    "files_ok": sum(1 for d in dl_results if d["ok"]),
-                    "files_err": sum(1 for d in dl_results if not d["ok"]),
+                    "files_ok": files_ok,
+                    "files_err": files_err,
                     "path": str(dest_dir),
                 })
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from moodlectl.client import MoodleClient
+from moodlectl.types import JSON, MoodleClientProtocol, UserId
 
 
-def send_message(client: MoodleClient, user_id: int, text: str) -> dict:
+def send_message(client: MoodleClientProtocol, user_id: UserId, text: str) -> JSON:
     return client.send_message(user_id, text)
 
 
-def delete_message(client: MoodleClient, message_id: int) -> None:
+def delete_message(client: MoodleClientProtocol, message_id: int) -> None:
     client.delete_message(message_id)

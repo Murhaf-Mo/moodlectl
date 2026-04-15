@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import re
 
-from moodlectl.client import MoodleClient
+from moodlectl.types import CourseId, GradeReport, GradeStats, MoodleClientProtocol
 
 
 def get_grade_report(
-    client: MoodleClient,
-    course_id: int,
+    client: MoodleClientProtocol,
+    course_id: CourseId,
     name: str = "",
-) -> dict:
+) -> GradeReport:
     """Return grade report for a course, optionally filtered by student name.
 
     name: case-insensitive partial match on fullname.
@@ -19,7 +19,7 @@ def get_grade_report(
 
     if name:
         needle = name.lower()
-        report["rows"] = [r for r in report["rows"] if needle in r["fullname"].lower()]
+        report["rows"] = [r for r in report["rows"] if needle in str(r["fullname"]).lower()]
 
     return report
 
@@ -40,7 +40,7 @@ def shorten_columns(columns: list[str], max_len: int = 22) -> dict[str, str]:
     return mapping
 
 
-def compute_stats(report: dict) -> dict:
+def compute_stats(report: GradeReport) -> GradeStats:
     """Compute grade statistics for the course total column.
 
     Parses numeric values from the last column (Course total) of a grade report.
@@ -48,14 +48,14 @@ def compute_stats(report: dict) -> dict:
       {column, count, mean, median, std_dev, min, max}
 
     Values like "75.00 (75.00 %)" are handled — only the first number is used.
-    Returns an empty dict if no numeric grades are found.
+    Returns an empty GradeStats if no numeric grades are found.
     """
     import statistics
 
     rows = report.get("rows", [])
     columns = report.get("columns", [])
     if not rows or not columns:
-        return {}
+        return {"column": "", "count": 0, "mean": 0.0, "median": 0.0, "std_dev": 0.0, "min": 0.0, "max": 0.0}
 
     # The last column is always the Course total
     total_col = columns[-1]
@@ -71,7 +71,7 @@ def compute_stats(report: dict) -> dict:
                 pass
 
     if not values:
-        return {"column": total_col, "count": 0}
+        return {"column": total_col, "count": 0, "mean": 0.0, "median": 0.0, "std_dev": 0.0, "min": 0.0, "max": 0.0}
 
     return {
         "column": total_col,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 from pathlib import Path
+from typing import cast
 
 import typer
 from rich.console import Console
@@ -12,6 +13,7 @@ from moodlectl.config import Config
 from moodlectl.features import assignments as assignments_feature
 from moodlectl.features import grading as grading_feature
 from moodlectl.output.formatters import print_table
+from moodlectl.types import Cmid, OutputFmt, UserId
 
 app = typer.Typer(help="Grade submission commands — submit, inspect, batch-grade, and guided grading.")
 console = Console(legacy_windows=False)
@@ -33,8 +35,8 @@ def show_grade(
     client = MoodleClient.from_config(Config.load())
 
     try:
-        assignment_id, context_id = client.get_assignment_internal_id(cmid)
-        fields = client.get_grade_form_fragment(context_id, user)
+        _, context_id = client.get_assignment_internal_id(Cmid(cmid))
+        fields = client.get_grade_form_fragment(context_id, UserId(user))
     except RuntimeError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
@@ -73,8 +75,8 @@ def submit_grade(
     # Look up student's name from the submissions list for a friendlier confirmation message
     student_name = f"ID {user}"
     try:
-        subs = client.get_assignment_submissions(cmid)
-        match = next((s for s in subs if s["user_id"] == user), None)
+        subs = client.get_assignment_submissions(Cmid(cmid))
+        match = next((s for s in subs if s["user_id"] == UserId(user)), None)
         if match:
             student_name = match["fullname"]
     except Exception:
@@ -88,8 +90,8 @@ def submit_grade(
     try:
         result = grading_feature.submit_grade(
             client,
-            cmid=cmid,
-            user_id=user,
+            cmid=Cmid(cmid),
+            user_id=UserId(user),
             grade=grade,
             feedback=feedback,
             notify_student=notify,
@@ -168,12 +170,12 @@ def batch_grade(
     if dry_run:
         console.print(f"[dim](dry run) {len(rows)} row(s) in {file.name} — nothing will be submitted.[/dim]\n")
 
-    results = grading_feature.batch_grade(client, cmid=cmid, rows=rows, dry_run=dry_run)
+    results = grading_feature.batch_grade(client, cmid=Cmid(cmid), rows=rows, dry_run=dry_run)
 
     ok = sum(1 for r in results if r.get("ok") is True or r.get("ok") == "(dry run)")
     failed = sum(1 for r in results if r.get("ok") is False)
 
-    print_table(results, columns=["user_id", "grade", "grade_max", "grade_pct", "ok", "error"], fmt=output)
+    print_table(results, columns=["user_id", "grade", "grade_max", "grade_pct", "ok", "error"], fmt=cast(OutputFmt, output))
 
     if dry_run:
         console.print(f"\n[dim](dry run) {len(results)} row(s) validated. Run without --dry-run to submit.[/dim]")
@@ -201,7 +203,7 @@ def next_to_grade(
     client = MoodleClient.from_config(Config.load())
 
     try:
-        submissions = client.get_assignment_submissions(cmid)
+        submissions = client.get_assignment_submissions(Cmid(cmid))
     except RuntimeError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
@@ -215,7 +217,7 @@ def next_to_grade(
     # Read grade_max once from the first student's grading fragment
     grade_max = None
     try:
-        _, context_id = client.get_assignment_internal_id(cmid)
+        _, context_id = client.get_assignment_internal_id(Cmid(cmid))
         fragment = client.get_grade_form_fragment(context_id, ungraded[0]["user_id"])
         grade_max = fragment.get("__grade_max__")
     except Exception:
@@ -245,7 +247,7 @@ def next_to_grade(
 
             result = grading_feature.submit_grade(
                 client,
-                cmid=cmid,
+                cmid=Cmid(cmid),
                 user_id=sub["user_id"],
                 grade=grade,
                 feedback=feedback,

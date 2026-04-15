@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, cast
 
 import typer
 from rich.console import Console
@@ -9,6 +9,7 @@ from moodlectl.client import MoodleClient
 from moodlectl.config import Config
 from moodlectl.features import courses as courses_feature
 from moodlectl.output.formatters import print_table
+from moodlectl.types import CourseId, OutputFmt
 
 app = typer.Typer(help="Course commands — list courses, view participants, and find inactive students.")
 console = Console()
@@ -28,7 +29,7 @@ def list_courses(
     """
     client = MoodleClient.from_config(Config.load())
     data = courses_feature.list_courses(client)
-    print_table(data, columns=["id", "fullname", "shortname"], fmt=output)
+    print_table(data, columns=["id", "fullname", "shortname"], fmt=cast(OutputFmt, output))
 
 
 @app.command("participants")
@@ -55,8 +56,8 @@ def participants(
     client = MoodleClient.from_config(Config.load())
 
     if course_id:
-        data = courses_feature.get_participants(client, course_id, role=role, name=name)
-        print_table(data, columns=["id", "fullname", "email", "roles", "lastaccess"], fmt=output)
+        data = courses_feature.get_participants(client, CourseId(course_id), role=role, name=name)
+        print_table(data, columns=["id", "fullname", "email", "roles", "lastaccess"], fmt=cast(OutputFmt, output))
     else:
         all_data = courses_feature.get_all_participants(client, role=role, name=name)
         courses = courses_feature.list_courses(client)
@@ -64,7 +65,7 @@ def participants(
 
         for cid, members in all_data.items():
             console.print(f"\n[bold cyan]{course_names.get(cid, f'Course {cid}')}[/bold cyan]")
-            print_table(members, columns=["id", "fullname", "email", "roles"], fmt=output)
+            print_table(members, columns=["id", "fullname", "email", "roles"], fmt=cast(OutputFmt, output))
 
 
 @app.command("inactive")
@@ -100,7 +101,7 @@ def inactive_students(
     try:
         if course_id is not None:
             # Single course — omit the 'course' column, it's implied
-            inactive = courses_feature.get_inactive_students(client, course_id=course_id, days=days)
+            inactive = courses_feature.get_inactive_students(client, course_id=CourseId(course_id), days=days)
             columns = ["user_id", "fullname", "email", "lastaccess", "inactive_days"]
         else:
             # All courses — include the 'course' column for context
@@ -117,4 +118,4 @@ def inactive_students(
 
     scope_label = f"course {course_id}" if course_id else "all courses"
     console.print(f"\n[yellow]{len(inactive)} student(s) inactive for {days}+ day(s) across {scope_label}:[/yellow]\n")
-    print_table(inactive, columns=columns, fmt=output)
+    print_table(inactive, columns=columns, fmt=cast(OutputFmt, output))

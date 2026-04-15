@@ -3,17 +3,19 @@ from __future__ import annotations
 
 import csv
 import pathlib
+from collections.abc import Mapping, Sequence
 
 
-def to_csv(data: list[dict], columns: list[str], path: str) -> None:
+def to_csv(data: Sequence[Mapping[str, object]], columns: list[str], path: str) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(data)
+        writer = csv.writer(f)
+        writer.writerow(columns)
+        for row in data:
+            writer.writerow([str(row.get(c, "")) for c in columns])
     print(f"Saved: {pathlib.Path(path).resolve()}")
 
 
-def to_excel(data: list[dict], columns: list[str], path: str) -> None:
+def to_excel(data: Sequence[Mapping[str, object]], columns: list[str], path: str) -> None:
     try:
         import openpyxl
     except ImportError:
@@ -21,8 +23,10 @@ def to_excel(data: list[dict], columns: list[str], path: str) -> None:
 
     wb = openpyxl.Workbook()
     ws = wb.active
+    if ws is None:
+        raise RuntimeError("openpyxl could not create a worksheet")
     ws.append(columns)
     for row in data:
-        ws.append([row.get(c, "") for c in columns])
+        ws.append([str(row.get(c, "")) for c in columns])
     wb.save(path)
     print(f"Saved: {pathlib.Path(path).resolve()}")

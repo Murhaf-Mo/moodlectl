@@ -5,6 +5,7 @@ import typer
 from moodlectl.client import MoodleClient
 from moodlectl.config import Config
 from moodlectl.output.formatters import console
+from moodlectl.types import UserId
 
 app = typer.Typer(help="Message commands")
 
@@ -22,12 +23,8 @@ def send(
       moodlectl messages send --to 1557 --text "Your assignment is due tomorrow."
     """
     client = MoodleClient.from_config(Config.load())
-    result = client.send_message(to, text)
-    msg_id = result[0].get("msgid") if result else None
-    if msg_id:
-        console.print(f"[green]Message sent to user {to}. ID: {msg_id}[/green]")
-    else:
-        console.print(f"[green]Message sent to user {to}.[/green]")
+    client.send_message(UserId(to), text)
+    console.print(f"[green]Message sent to user {to}.[/green]")
 
 
 @app.command("delete")

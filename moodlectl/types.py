@@ -1,0 +1,266 @@
+"""Shared TypedDict definitions, type aliases, NewTypes, and the client Protocol.
+
+All public API shapes live here so every layer (client, features, CLI) agrees
+on the exact structure of each object without using Any.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Literal, NewType, Protocol, TypedDict
+
+# ---------------------------------------------------------------------------
+# Semantic ID types — prevents mixing up cmid, user_id, and course_id
+# ---------------------------------------------------------------------------
+
+Cmid = NewType("Cmid", int)
+"""Course-module ID — identifies an assignment instance (from `mod/assign/index.php`)."""
+
+UserId = NewType("UserId", int)
+"""Moodle user ID — identifies a student or teacher (from `user/index.php`)."""
+
+CourseId = NewType("CourseId", int)
+"""Moodle course ID — identifies a course (from enrolled courses API)."""
+
+# ---------------------------------------------------------------------------
+# Recursive JSON type — used only at the raw HTTP boundary in client/base.py
+# ---------------------------------------------------------------------------
+
+type JSON = str | int | float | bool | None | dict[str, JSON] | list[JSON]
+
+# ---------------------------------------------------------------------------
+# Constrained string aliases
+# ---------------------------------------------------------------------------
+
+type AssignmentStatus = Literal["active", "past", "all"]
+"""Status filter for assignment queries. Individual assignments use only "active" | "past"."""
+
+type OutputFmt = Literal["table", "json", "csv"]
+"""Output format accepted by print_table()."""
+
+# ---------------------------------------------------------------------------
+# Client layer — shapes returned directly by MoodleAPI methods
+# ---------------------------------------------------------------------------
+
+class Course(TypedDict):
+    id: CourseId
+    fullname: str
+    shortname: str
+    visible: int
+    enddate: int
+
+
+class FileRef(TypedDict):
+    filename: str
+    url: str
+
+
+class Participant(TypedDict):
+    id: UserId
+    fullname: str
+    email: str
+    roles: str
+    lastaccess: str
+    status: str
+
+
+class AssignmentMeta(TypedDict):
+    """Raw assignment row scraped from /mod/assign/index.php."""
+    cmid: Cmid
+    name: str
+    due_text: str
+    submitted_count: int
+
+
+class Submission(TypedDict):
+    user_id: UserId
+    fullname: str
+    email: str
+    status: str
+    grading_status: str
+    files: list[FileRef]
+
+
+class GradeReport(TypedDict):
+    columns: list[str]
+    # Grade rows have fixed keys (id, fullname, email) plus one dynamic key per
+    # grade item — all values are strings or ints, never nested.
+    rows: list[dict[str, str | int]]
+
+
+# Grade form fields are completely dynamic (HTML form element names).
+# All values are strings; the special __grade_max__ key is added by the client.
+FormFields = dict[str, str]
+
+# ---------------------------------------------------------------------------
+# Convenience aliases used across multiple layers
+# ---------------------------------------------------------------------------
+
+type CourseMap = dict[CourseId, Course]
+"""Keyed-by-ID course lookup — built from get_courses() results."""
+
+# ---------------------------------------------------------------------------
+# Feature layer — shapes produced by features/ business-logic functions
+# ---------------------------------------------------------------------------
+
+class AssignmentListing(TypedDict):
+    """Assignment enriched with parsed due-date and status, from list_assignments()."""
+    course_id: CourseId
+    cmid: Cmid
+    name: str
+    due_text: str
+    due_dt: datetime | None
+    submitted_count: int
+    status: Literal["active", "past"]
+
+
+class MissingStudent(TypedDict):
+    """Student who has not submitted a given assignment."""
+    user_id: UserId
+    fullname: str
+    email: str
+    lastaccess: str
+
+
+class MissingResult(TypedDict):
+    """Row from get_all_missing_submissions() — includes course and assignment context."""
+    course: str
+    assignment: str
+    assignment_status: str
+    due_date: str
+    user_id: UserId
+    fullname: str
+    email: str
+    lastaccess: str
+
+
+class UngradedResult(TypedDict):
+    """Row from get_all_ungraded_submissions()."""
+    course: str
+    assignment: str
+    assignment_status: str
+    due_date: str
+    user_id: UserId
+    fullname: str
+    email: str
+    grading_status: str
+    files: str  # comma-joined filenames for display
+
+
+class DueSoon(TypedDict):
+    """Assignment due within N days, from get_due_soon()."""
+    course: str
+    cmid: Cmid
+    assignment: str
+    due_date: str
+    submitted: int
+    days_left: int
+
+
+class DownloadResult(TypedDict):
+    """Per-student download summary from download_submissions()."""
+    course: str
+    assignment: str
+    student: str
+    student_id: UserId
+    files_ok: int
+    files_err: int
+    path: str
+
+
+class ReminderResult(TypedDict):
+    """Result of remind_missing_students() — one row per student."""
+    user_id: UserId
+    fullname: str
+    email: str
+    lastaccess: str
+    sent: bool
+
+
+class BulkReminderResult(TypedDict):
+    """Result of remind_all_missing_students() — includes course and assignment."""
+    course: str
+    assignment: str
+    user_id: UserId
+    fullname: str
+    sent: bool
+
+
+class InactiveStudent(TypedDict):
+    """Single-course inactive student row (no course column)."""
+    user_id: UserId
+    fullname: str
+    email: str
+    lastaccess: str
+    inactive_days: int | str  # "?" when lastaccess text is unparseable
+
+
+class CourseInactiveStudent(TypedDict):
+    """All-courses inactive student row (includes course shortname)."""
+    course: str
+    user_id: UserId
+    fullname: str
+    email: str
+    lastaccess: str
+    inactive_days: int | str  # "?" when lastaccess text is unparseable
+
+
+class GradeResult(TypedDict):
+    """Returned by features/grading.submit_grade()."""
+    user_id: UserId
+    grade: float
+    grade_max: float
+    grade_pct: float | None
+    feedback: str
+
+
+class BatchResult(TypedDict):
+    """One row from features/grading.batch_grade()."""
+    user_id: UserId
+    grade: float
+    grade_max: float | str  # "?" when submission raised an error
+    grade_pct: float | None
+    ok: bool | str           # True | False | "(dry run)"
+    error: str
+
+
+class GradeStats(TypedDict):
+    """Output of features/grades.compute_stats(). count=0 means no numeric grades found."""
+    column: str
+    count: int
+    mean: float
+    median: float
+    std_dev: float
+    min: float
+    max: float
+
+# ---------------------------------------------------------------------------
+# Client Protocol — features depend on this, not on the concrete MoodleAPI class
+# ---------------------------------------------------------------------------
+
+class MoodleClientProtocol(Protocol):
+    """Structural interface that MoodleAPI satisfies.
+
+    Feature functions accept this Protocol instead of the concrete MoodleAPI class.
+    This decouples business logic from the HTTP implementation and makes unit
+    testing trivial — any object with these methods works.
+    """
+
+    def get_courses(self) -> list[Course]: ...
+    def get_course_participants(self, course_id: CourseId) -> list[Participant]: ...
+    def get_grade_report(self, course_id: CourseId) -> GradeReport: ...
+    def get_course_assignments(self, course_id: CourseId) -> list[AssignmentMeta]: ...
+    def get_assignment_submissions(self, cmid: Cmid) -> list[Submission]: ...
+    def get_assignment_brief_files(self, cmid: Cmid) -> list[FileRef]: ...
+    def get_assignment_internal_id(self, cmid: Cmid) -> tuple[int, int]: ...
+    def get_grade_form_fragment(self, context_id: int, user_id: UserId) -> FormFields: ...
+    def submit_grade_for_user(
+        self,
+        cmid: Cmid,
+        user_id: UserId,
+        grade: float,
+        feedback: str,
+        notify_student: bool,
+    ) -> float: ...
+    def download_file(self, url: str, dest_path: object) -> None: ...
+    def send_message(self, user_id: UserId, message: str) -> JSON: ...
+    def delete_message(self, message_id: int) -> None: ...

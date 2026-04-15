@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from moodlectl.ai.client import AIClient  # noqa: F401
+from moodlectl.types import Submission
 
 
-def grade_submission(ai: AIClient, submission: dict) -> tuple[float, str]:
+def grade_submission(ai: AIClient, submission: Submission) -> tuple[float, str]:
     """Send submission to Claude, return (grade_0_to_100, feedback_text)."""
     raise NotImplementedError("AI grading coming soon")
