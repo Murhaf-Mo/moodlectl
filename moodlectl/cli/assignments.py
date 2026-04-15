@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -10,12 +11,15 @@ from moodlectl.config import Config
 from moodlectl.features import assignments as assignments_feature
 from moodlectl.output.formatters import print_table
 
-app = typer.Typer(help="Assignment commands")
+app = typer.Typer(help="Assignment commands — list, submissions, grading status, downloads, and reminders.")
 console = Console()
 
 
 def _load(course: tuple[int, ...]) -> tuple[MoodleClient, list[int], dict[int, dict]]:
-    """Shared setup: load client, resolve course IDs, build course_map."""
+    """Shared setup: load client, resolve course IDs, build course_map.
+
+    If course is empty, all enrolled courses are used.
+    """
     client = MoodleClient.from_config(Config.load())
     all_courses = client.get_courses()
     course_map = {c["id"]: c for c in all_courses}
@@ -23,20 +27,30 @@ def _load(course: tuple[int, ...]) -> tuple[MoodleClient, list[int], dict[int, d
     return client, course_ids, course_map
 
 
+# ── list ──────────────────────────────────────────────────────────────────────
+
 @app.command("list")
 def list_assignments(
     course: list[int] = typer.Option(
         None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
     ),
-    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+    status: str = typer.Option("all", "--status", "-s", help="Filter by status: active, past, or all."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List assignments across your courses.
+
+    STATUS values:
+      active — due date is in the future, or no due date set
+      past   — due date has already passed
+      all    — no filtering (default)
+
+    The cmid column is the ID used by all other assignment and grading commands.
 
     Examples:
       moodlectl assignments list
       moodlectl assignments list --status active
       moodlectl assignments list --course 568 --status past
+      moodlectl assignments list --output csv > assignments.csv
     """
     client, course_ids, course_map = _load(tuple(course or []))
 
@@ -61,17 +75,84 @@ def list_assignments(
     print_table(rows, columns=["cmid", "course", "assignment", "status", "due_date", "submitted"], fmt=output)
 
 
+# ── info ──────────────────────────────────────────────────────────────────────
+
+@app.command("info")
+def assignment_info(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+):
+    """Show full details for a single assignment.
+
+    Displays cmid, internal IDs, course, name, due date, submission count,
+    and grade scale. The grade scale is read from the grading form of the
+    first submitted student.
+
+    Examples:
+      moodlectl assignments info --assignment 18002
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    try:
+        assignment_id, context_id = client.get_assignment_internal_id(cmid)
+    except Exception as exc:
+        console.print(f"[red]Could not resolve assignment IDs:[/red] {exc}")
+        raise typer.Exit(1)
+
+    # Read grade_max from the grading form of the first submitter
+    grade_max = None
+    try:
+        submissions = client.get_assignment_submissions(cmid)
+        if submissions:
+            first_user_id = submissions[0]["user_id"]
+            fragment = client.get_grade_form_fragment(context_id, first_user_id)
+            grade_max = fragment.get("__grade_max__") or None
+    except Exception:
+        pass  # grade_max stays None if no submissions or fragment unavailable
+
+    # Locate assignment metadata by scanning all courses
+    all_courses = client.get_courses()
+    course_map = {c["id"]: c for c in all_courses}
+    meta = None
+    for cid in course_map:
+        try:
+            for a in client.get_course_assignments(cid):
+                if a["cmid"] == cmid:
+                    meta = {**a, "course_id": cid}
+                    break
+        except Exception:
+            continue
+        if meta:
+            break
+
+    course_info = course_map.get(meta["course_id"], {}) if meta else {}
+
+    rows = [
+        {"field": "cmid",          "value": str(cmid)},
+        {"field": "assignment_id", "value": str(assignment_id)},
+        {"field": "context_id",    "value": str(context_id)},
+        {"field": "course",        "value": course_info.get("shortname", "unknown")},
+        {"field": "name",          "value": meta["name"] if meta else "unknown"},
+        {"field": "due_date",      "value": (meta["due_text"] or "No due date") if meta else "unknown"},
+        {"field": "submitted",     "value": str(meta["submitted_count"]) if meta else "unknown"},
+        {"field": "grade_max",     "value": str(grade_max) if grade_max is not None else "unknown"},
+    ]
+
+    print_table(rows, columns=["field", "value"], fmt="table")
+
+
+# ── submissions ───────────────────────────────────────────────────────────────
+
 @app.command("submissions")
 def list_submissions(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
-    ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+    ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
-    """List who submitted an assignment and which files they uploaded — no downloads.
+    """List who submitted an assignment and which files they uploaded.
 
     Shows student name, email, submission status, grading status, and filenames.
-    Use --ungraded to filter to submissions that still need grading.
-    Use --output csv to export the list.
+    Use --ungraded to filter to submissions that still need a grade.
+    Use `grading next --assignment` for an interactive grading session.
 
     Examples:
       moodlectl assignments submissions --assignment 18002
@@ -109,54 +190,102 @@ def list_submissions(
     print_table(rows, columns=["user_id", "fullname", "email", "status", "grading_status", "files"], fmt=output)
 
 
+# ── missing ───────────────────────────────────────────────────────────────────
+
 @app.command("missing")
 def missing_submissions(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
-    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+    cmid: Optional[int] = typer.Option(
+        None, "--assignment", "-a",
+        help="Assignment cmid (from `assignments list`). Requires --course. Omit to scan all assignments."
+    ),
+    course: list[int] = typer.Option(
+        None, "--course", "-c",
+        help="Course ID. Required with --assignment. Repeatable when scanning all assignments."
+    ),
+    status: str = typer.Option(
+        "all", "--status", "-s",
+        help="Filter by assignment status: active, past, or all. Only used when scanning all assignments."
+    ),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
-    """Show students who have NOT submitted for an assignment.
+    """Show students who have NOT submitted.
 
-    Compares enrolled students against submitted ones and lists the difference,
-    along with each student's last access time so you can gauge activity.
+    With --assignment and --course: checks one assignment.
+    Without --assignment: scans all assignments across all courses (or selected --course IDs).
+
+    The lastaccess column shows when each student last logged in, helping you
+    gauge whether they are likely to submit or are unreachable.
 
     Examples:
       moodlectl assignments missing --assignment 18002 --course 568
-      moodlectl assignments missing --assignment 18002 --course 568 --output csv > missing.csv
+      moodlectl assignments missing
+      moodlectl assignments missing --status past
+      moodlectl assignments missing --course 568 --status active
+      moodlectl assignments missing --output csv > missing.csv
     """
     client = MoodleClient.from_config(Config.load())
 
-    try:
-        missing = assignments_feature.get_missing_submissions(client, cmid=cmid, course_id=course)
-    except RuntimeError as exc:
-        console.print(f"[red]Error:[/red] {exc}")
-        raise typer.Exit(1)
+    # Single-assignment path: --assignment and --course both provided
+    if cmid is not None:
+        if not course:
+            console.print("[red]--course is required when --assignment is specified.[/red]")
+            raise typer.Exit(1)
+        course_id = course[0]
+        try:
+            missing = assignments_feature.get_missing_submissions(client, cmid=cmid, course_id=course_id)
+        except RuntimeError as exc:
+            console.print(f"[red]Error:[/red] {exc}")
+            raise typer.Exit(1)
+
+        if not missing:
+            console.print("[green]All students have submitted.[/green]")
+            raise typer.Exit()
+
+        console.print(f"[yellow]{len(missing)} student(s) have not submitted.[/yellow]\n")
+        print_table(missing, columns=["user_id", "fullname", "email", "lastaccess"], fmt=output)
+        return
+
+    # Bulk path: scan all assignments across all (or selected) courses
+    all_courses = client.get_courses()
+    course_map = {c["id"]: c for c in all_courses}
+    course_ids = list(course) if course else list(course_map.keys())
+
+    missing = assignments_feature.get_all_missing_submissions(
+        client, course_ids, course_map=course_map, status=status
+    )
 
     if not missing:
-        console.print("[green]All students have submitted.[/green]")
+        console.print("[green]No missing submissions found.[/green]")
         raise typer.Exit()
 
-    console.print(f"[yellow]{len(missing)} student(s) have not submitted.[/yellow]\n")
-    print_table(missing, columns=["user_id", "fullname", "email", "lastaccess"], fmt=output)
+    console.print(f"\n[yellow]{len(missing)} missing submission(s) found.[/yellow]\n")
+    print_table(
+        missing,
+        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email", "lastaccess"],
+        fmt=output,
+    )
 
 
-@app.command("ungraded-all")
-def ungraded_all_submissions(
+# ── ungraded ──────────────────────────────────────────────────────────────────
+
+@app.command("ungraded")
+def ungraded_submissions(
     course: list[int] = typer.Option(
         None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
     ),
-    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List all submitted assignments that have not been graded yet, across all courses.
 
-    Use --status to narrow to past or active assignments.
+    Use `grading next --assignment` to interactively grade through the list for
+    one assignment at a time, or `grading batch` to grade from a CSV file.
 
     Examples:
-      moodlectl assignments ungraded-all
-      moodlectl assignments ungraded-all --status past
-      moodlectl assignments ungraded-all --course 590
-      moodlectl assignments ungraded-all --output csv > ungraded.csv
+      moodlectl assignments ungraded
+      moodlectl assignments ungraded --status past
+      moodlectl assignments ungraded --course 590
+      moodlectl assignments ungraded --output csv > ungraded.csv
     """
     client, course_ids, course_map = _load(tuple(course or []))
 
@@ -176,133 +305,145 @@ def ungraded_all_submissions(
     )
 
 
-@app.command("missing-all")
-def missing_all_submissions(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
-):
-    """Show all students who have NOT submitted across all courses and assignments.
+# ── remind ────────────────────────────────────────────────────────────────────
 
-    Use --status to narrow to past (already due) or active (not due yet) assignments.
+@app.command("remind")
+def remind_missing(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
+    text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+):
+    """Send a Moodle message to every student who hasn't submitted an assignment.
+
+    Use --dry-run first to preview who will be messaged before sending.
 
     Examples:
-      moodlectl assignments missing-all
-      moodlectl assignments missing-all --status past
-      moodlectl assignments missing-all --course 590 --status active
-      moodlectl assignments missing-all --output csv > missing.csv
-    """
-    client, course_ids, course_map = _load(tuple(course or []))
-
-    missing = assignments_feature.get_all_missing_submissions(
-        client, course_ids, course_map=course_map, status=status
-    )
-
-    if not missing:
-        console.print("[green]No missing submissions found.[/green]")
-        raise typer.Exit()
-
-    console.print(f"\n[yellow]{len(missing)} missing submission(s) found.[/yellow]\n")
-    print_table(
-        missing,
-        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email", "lastaccess"],
-        fmt=output,
-    )
-
-
-@app.command("info")
-def assignment_info(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
-):
-    """Show full details for an assignment: cmid, grade scale, due date, submission count.
-
-    Fetches the grade max by reading the grading form from the first submission.
-
-    Examples:
-      moodlectl assignments info --assignment 18002
+      moodlectl assignments remind --assignment 18002 --course 568 --text "Reminder: your assignment is due Friday."
+      moodlectl assignments remind --assignment 18002 --course 568 --text "..." --dry-run
     """
     client = MoodleClient.from_config(Config.load())
 
-    # Resolve internal IDs
     try:
-        assignment_id, context_id = client.get_assignment_internal_id(cmid)
-    except Exception as exc:
-        console.print(f"[red]Could not resolve assignment IDs:[/red] {exc}")
+        missing = assignments_feature.get_missing_submissions(client, cmid=cmid, course_id=course)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
 
-    # Get grade_max from the grading fragment using the first submitter
-    grade_max = None
-    try:
-        submissions = client.get_assignment_submissions(cmid)
-        if submissions:
-            first_user_id = submissions[0]["user_id"]
-            fragment = client.get_grade_form_fragment(context_id, first_user_id)
-            grade_max = fragment.get("__grade_max__") or None
-    except Exception:
-        pass  # grade_max stays None if we can't fetch it
+    if not missing:
+        console.print("[green]No missing submissions — nobody to remind.[/green]")
+        raise typer.Exit()
 
-    # Find assignment metadata from courses
-    all_courses = client.get_courses()
-    course_map = {c["id"]: c for c in all_courses}
-    meta = None
-    for cid in course_map:
-        try:
-            for a in client.get_course_assignments(cid):
-                if a["cmid"] == cmid:
-                    meta = {**a, "course_id": cid}
-                    break
-        except Exception:
-            continue
-        if meta:
-            break
+    if dry_run:
+        console.print(f"[dim](dry run) Would message {len(missing)} student(s):[/dim]\n")
+        print_table(missing, columns=["user_id", "fullname", "email"], fmt=output)
+        return
 
-    course_info = course_map.get(meta["course_id"], {}) if meta else {}
+    results = assignments_feature.remind_missing_students(client, cmid=cmid, course_id=course, message_text=text)
+    sent = sum(1 for r in results if r.get("sent"))
+    console.print(f"\n[green]{sent}[/green] of {len(results)} message(s) sent.\n")
+    print_table(results, columns=["user_id", "fullname", "email", "sent"], fmt=output)
 
-    rows = [{
-        "field": "cmid",
-        "value": str(cmid),
-    }, {
-        "field": "assignment_id",
-        "value": str(assignment_id),
-    }, {
-        "field": "context_id",
-        "value": str(context_id),
-    }, {
-        "field": "course",
-        "value": course_info.get("shortname", "unknown"),
-    }, {
-        "field": "name",
-        "value": meta["name"] if meta else "unknown",
-    }, {
-        "field": "due_date",
-        "value": (meta["due_text"] or "No due date") if meta else "unknown",
-    }, {
-        "field": "submitted",
-        "value": str(meta["submitted_count"]) if meta else "unknown",
-    }, {
-        "field": "grade_max",
-        "value": str(grade_max) if grade_max is not None else "unknown",
-    }]
 
-    print_table(rows, columns=["field", "value"], fmt="table")
+# ── remind-all ────────────────────────────────────────────────────────────────
 
+@app.command("remind-all")
+def remind_all_missing(
+    course: list[int] = typer.Option(
+        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+    ),
+    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+    text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+):
+    """Send reminders to all students missing submissions, across all courses.
+
+    Each student gets one message per assignment they haven't submitted.
+    Use --dry-run first to preview the full list before sending.
+
+    Examples:
+      moodlectl assignments remind-all --text "Please submit your pending assignments."
+      moodlectl assignments remind-all --status active --text "Deadline approaching!" --dry-run
+      moodlectl assignments remind-all --course 568 --text "..." --output csv > sent.csv
+    """
+    client, course_ids, course_map = _load(tuple(course or []))
+
+    if dry_run:
+        # Show missing list without sending
+        missing = assignments_feature.get_all_missing_submissions(
+            client, course_ids, course_map=course_map, status=status
+        )
+        if not missing:
+            console.print("[green]No missing submissions — nobody to remind.[/green]")
+            raise typer.Exit()
+        console.print(f"[dim](dry run) Would message {len(missing)} student/assignment pair(s):[/dim]\n")
+        print_table(missing, columns=["course", "assignment", "user_id", "fullname", "email"], fmt=output)
+        return
+
+    results = assignments_feature.remind_all_missing_students(
+        client, course_ids, course_map=course_map, message_text=text, status=status
+    )
+
+    if not results:
+        console.print("[green]No missing submissions — nobody to remind.[/green]")
+        raise typer.Exit()
+
+    sent = sum(1 for r in results if r.get("sent"))
+    console.print(f"\n[green]{sent}[/green] of {len(results)} message(s) sent.\n")
+    print_table(results, columns=["course", "assignment", "user_id", "fullname", "sent"], fmt=output)
+
+
+# ── due-soon ──────────────────────────────────────────────────────────────────
+
+@app.command("due-soon")
+def due_soon(
+    course: list[int] = typer.Option(
+        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+    ),
+    days: int = typer.Option(7, "--days", "-d", help="Number of days to look ahead (default: 7)."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+):
+    """Show active assignments with a due date in the next N days.
+
+    Sorted by most urgent first (fewest days remaining). Assignments with
+    no due date are excluded. Use this for a quick morning check of upcoming deadlines.
+
+    Examples:
+      moodlectl assignments due-soon
+      moodlectl assignments due-soon --days 3
+      moodlectl assignments due-soon --course 568 --days 14
+    """
+    client, course_ids, course_map = _load(tuple(course or []))
+
+    due = assignments_feature.get_due_soon(client, course_ids, course_map, days=days)
+
+    if not due:
+        console.print(f"[green]No assignments due in the next {days} day(s).[/green]")
+        raise typer.Exit()
+
+    console.print(f"\n[bold yellow]{len(due)} assignment(s) due in the next {days} day(s):[/bold yellow]\n")
+    print_table(due, columns=["course", "cmid", "assignment", "due_date", "submitted", "days_left"], fmt=output)
+
+
+# ── download ──────────────────────────────────────────────────────────────────
 
 @app.command("download")
 def download_submissions(
     course: list[int] = typer.Option(
         None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
     ),
-    status: str = typer.Option("all", "--status", "-s", help="active, past, or all"),
-    out: Path = typer.Option(Path("assignments"), "--out", help="Output directory"),
-    ungraded: bool = typer.Option(False, "--ungraded", help="Download only submissions that have not been graded yet"),
+    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+    out: Path = typer.Option(Path("assignments"), "--out", help="Output directory (default: ./assignments)."),
+    ungraded: bool = typer.Option(False, "--ungraded", help="Download only submissions that have not been graded yet."),
 ):
     """Download submitted assignment files, organised by course and status.
 
     Output layout:
-      {out}/{course}/{active|past}/{assignment}/{student_name_id}/file.pdf
+      {out}/{course_short}/{active|past}/{assignment}/{student_name_id}/file.pdf
 
+    Instructor-attached brief files are saved to a _brief/ subfolder.
     Use --ungraded to only download files from students who still need grading.
 
     Examples:

@@ -8,23 +8,26 @@ from moodlectl.config import Config
 from moodlectl.features import grades as grades_feature
 from moodlectl.output.formatters import print_table
 
-app = typer.Typer(help="Grade commands")
+app = typer.Typer(help="Grade report commands — view and analyse student grades.")
 console = Console()
 
 
 @app.command("show")
 def show_grades(
-    course: int = typer.Option(None, "--course", help="Course ID. Omit to show all courses."),
-    name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)"),
-    full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table"),
-    cards: bool = typer.Option(False, "--cards", help="Show one card per student with all grade items"),
-    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+    course: int = typer.Option(None, "--course", help="Course ID. Omit to show all enrolled courses."),
+    name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)."),
+    full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table."),
+    cards: bool = typer.Option(False, "--cards", help="Show one panel per student listing all grade items."),
+    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
-    """Show grades for all students in a course.
+    """Show the grade report for all students in a course.
 
-    Default view shows name + course total only.
-    Use --full for a wide table with all grade items, --cards for one panel per student.
-    Omit --course to show all your courses at once.
+    Default view: name + course total only (summary).
+    --full : wide table with every grade item as a column.
+    --cards: one Rich panel per student showing all grade items vertically.
+    Omit --course to iterate over all your courses.
+
+    Use --output csv to export all columns in UTF-8 (Excel-compatible).
 
     Examples:
       moodlectl grades show
@@ -37,17 +40,14 @@ def show_grades(
     """
     client = MoodleClient.from_config(Config.load())
 
-    if course is None:
-        course_ids = [c["id"] for c in client.get_courses()]
-    else:
-        course_ids = [course]
+    course_ids = [course] if course is not None else [c["id"] for c in client.get_courses()]
 
     reports = []
     for cid in course_ids:
         report = grades_feature.get_grade_report(client, cid, name=name)
         reports.append((cid, report))
 
-    # For multi-course output mode, merge all rows for csv/json
+    # For multi-course csv/json, merge all rows into one flat list
     if output != "table" and len(reports) > 1:
         all_rows: list[dict] = []
         for cid, report in reports:
@@ -58,27 +58,66 @@ def show_grades(
             print_table(all_rows, columns=cols, fmt=output)
         return
 
-    # Single report path (reused for both single-course and per-course table display)
     for cid, report in reports:
         _print_report(console, report, cid if course is None else None, full, cards, output, grades_feature)
 
 
+@app.command("stats")
+def grade_stats(
+    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
+    name: str = typer.Option("", "--name", "-n", help="Filter by student name before computing stats (partial match)."),
+):
+    """Show grade statistics for a course: mean, median, std dev, min, max.
+
+    Statistics are computed on the Course Total column of the grade report.
+    Use --name to compute stats for a specific subset of students.
+
+    Examples:
+      moodlectl grades stats --course 568
+      moodlectl grades stats --course 568 --name "Group A"
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    try:
+        report = grades_feature.get_grade_report(client, course, name=name)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    stats = grades_feature.compute_stats(report)
+
+    if not stats or stats.get("count", 0) == 0:
+        console.print("[yellow]No numeric grades found in the course total column.[/yellow]")
+        raise typer.Exit()
+
+    console.print(f"\n[bold]Grade statistics — {stats['column']}[/bold]\n")
+    rows = [
+        {"metric": "Students",       "value": str(stats["count"])},
+        {"metric": "Mean",           "value": str(stats["mean"])},
+        {"metric": "Median",         "value": str(stats["median"])},
+        {"metric": "Std deviation",  "value": str(stats["std_dev"])},
+        {"metric": "Min",            "value": str(stats["min"])},
+        {"metric": "Max",            "value": str(stats["max"])},
+    ]
+    print_table(rows, columns=["metric", "value"], fmt="table")
+
+
+# ── internal helpers ──────────────────────────────────────────────────────────
 
 def _print_report(console, report, course_id, full, cards, output, grades_feature):
+    """Render a single course grade report in the requested display mode."""
     rows = report["rows"]
     columns = report["columns"]
 
     if not rows:
-        if course_id is not None:
-            console.print(f"[yellow]No grades found for course {course_id}.[/yellow]")
-        else:
-            console.print("[yellow]No grades found.[/yellow]")
+        label = f"course {course_id}" if course_id is not None else "any course"
+        console.print(f"[yellow]No grades found for {label}.[/yellow]")
         return
 
     if course_id is not None:
         console.print(f"\n[bold cyan]Course {course_id}[/bold cyan]")
 
-    # columns[0] = "First name / Last name", [1] = "Email address", [-1] = "Course total"
+    # columns[0] = student name, [1] = email, [-1] = Course total
     grade_cols = columns[2:]
     total_col = columns[-1]
 
@@ -111,11 +150,14 @@ def _print_report(console, report, course_id, full, cards, output, grades_featur
                 style = "bold green" if short == short_total else ""
                 tbl.add_row(short, f"[{style}]{score}[/{style}]" if style else score)
             console.print(Panel(tbl, title=f"[bold]{row['fullname']}[/bold]", expand=False))
+
     elif full:
         print_table(display_rows, columns=["fullname"] + all_short, fmt="table")
+
     else:
+        # Summary: name + course total only, with a hint about the other views
         console.print(
-            f"[dim]{len(all_short)} grade items — use [bold]--full[/bold] to see all columns "
-            f"or [bold]--cards[/bold] for per-student view.[/dim]\n"
+            f"[dim]{len(all_short)} grade item(s) — use [bold]--full[/bold] to see all columns "
+            f"or [bold]--cards[/bold] for a per-student view.[/dim]\n"
         )
         print_table(display_rows, columns=["fullname", short_total], fmt="table")
