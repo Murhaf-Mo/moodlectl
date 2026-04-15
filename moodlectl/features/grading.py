@@ -4,12 +4,12 @@ from moodlectl.types import BatchResult, Cmid, GradeResult, MoodleClientProtocol
 
 
 def submit_grade(
-    client: MoodleClientProtocol,
-    cmid: Cmid,
-    user_id: UserId,
-    grade: float,
-    feedback: str = "",
-    notify_student: bool = False,
+        client: MoodleClientProtocol,
+        cmid: Cmid,
+        user_id: UserId,
+        grade: float,
+        feedback: str = "",
+        notify_student: bool = False,
 ) -> GradeResult:
     """Submit a grade for one student on one assignment.
 
@@ -34,10 +34,10 @@ def submit_grade(
 
 
 def batch_grade(
-    client: MoodleClientProtocol,
-    cmid: Cmid,
-    rows: list[dict[str, str | None]],
-    dry_run: bool = False,
+        client: MoodleClientProtocol,
+        cmid: Cmid,
+        rows: list[dict[str, str | None]],
+        dry_run: bool = False,
 ) -> list[BatchResult]:
     """Submit grades from a list of row dicts, each with user_id, grade, feedback.
 

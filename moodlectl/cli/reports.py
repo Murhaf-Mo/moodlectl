@@ -8,7 +8,7 @@ app = typer.Typer(help="Report commands (coming soon)")
 
 @app.command("student")
 def student_report(
-    name: str = typer.Option(..., "--name", help="Student name"),
+        name: str = typer.Option(..., "--name", help="Student name"),
 ):
     """Generate a comprehensive report for a student. (Coming soon)"""
     typer.echo("Student reports coming soon.")

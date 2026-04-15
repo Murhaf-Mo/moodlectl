@@ -18,10 +18,10 @@ def list_courses(client: MoodleClientProtocol) -> list[Course]:
 
 
 def get_participants(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    role: str = "",
-    name: str = "",
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        role: str = "",
+        name: str = "",
 ) -> list[Participant]:
     """Return participants for a course, optionally filtered by role and name.
 
@@ -38,9 +38,9 @@ def get_participants(
 
 
 def get_all_participants(
-    client: MoodleClientProtocol,
-    role: str = "",
-    name: str = "",
+        client: MoodleClientProtocol,
+        role: str = "",
+        name: str = "",
 ) -> dict[CourseId, list[Participant]]:
     """Return participants for every enrolled course, keyed by course ID."""
     courses = list_courses(client)
@@ -48,9 +48,9 @@ def get_all_participants(
 
 
 def get_inactive_students(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    days: int = 14,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        days: int = 14,
 ) -> list[InactiveStudent]:
     """Return students who have not accessed the course in at least `days` days.
 
@@ -80,9 +80,9 @@ def get_inactive_students(
 
 
 def get_all_inactive_students(
-    client: MoodleClientProtocol,
-    days: int = 14,
-    course_ids: list[CourseId] | None = None,
+        client: MoodleClientProtocol,
+        days: int = 14,
+        course_ids: list[CourseId] | None = None,
 ) -> list[CourseInactiveStudent]:
     """Return inactive students across all (or selected) courses.
 

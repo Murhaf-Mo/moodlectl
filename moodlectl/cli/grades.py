@@ -17,11 +17,11 @@ console = Console()
 
 @app.command("show")
 def show_grades(
-    course: Optional[int] = typer.Option(None, "--course", help="Course ID. Omit to show all enrolled courses."),
-    name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)."),
-    full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table."),
-    cards: bool = typer.Option(False, "--cards", help="Show one panel per student listing all grade items."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course: Optional[int] = typer.Option(None, "--course", help="Course ID. Omit to show all enrolled courses."),
+        name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)."),
+        full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table."),
+        cards: bool = typer.Option(False, "--cards", help="Show one panel per student listing all grade items."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show the grade report for all students in a course.
 
@@ -67,8 +67,9 @@ def show_grades(
 
 @app.command("stats")
 def grade_stats(
-    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
-    name: str = typer.Option("", "--name", "-n", help="Filter by student name before computing stats (partial match)."),
+        course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
+        name: str = typer.Option("", "--name", "-n",
+                                 help="Filter by student name before computing stats (partial match)."),
 ):
     """Show grade statistics for a course: mean, median, std dev, min, max.
 
@@ -95,12 +96,12 @@ def grade_stats(
 
     console.print(f"\n[bold]Grade statistics — {stats['column']}[/bold]\n")
     rows: list[dict[str, str]] = [
-        {"metric": "Students",       "value": str(stats["count"])},
-        {"metric": "Mean",           "value": str(stats["mean"])},
-        {"metric": "Median",         "value": str(stats["median"])},
-        {"metric": "Std deviation",  "value": str(stats["std_dev"])},
-        {"metric": "Min",            "value": str(stats["min"])},
-        {"metric": "Max",            "value": str(stats["max"])},
+        {"metric": "Students", "value": str(stats["count"])},
+        {"metric": "Mean", "value": str(stats["mean"])},
+        {"metric": "Median", "value": str(stats["median"])},
+        {"metric": "Std deviation", "value": str(stats["std_dev"])},
+        {"metric": "Min", "value": str(stats["min"])},
+        {"metric": "Max", "value": str(stats["max"])},
     ]
     print_table(rows, columns=["metric", "value"], fmt="table")
 
@@ -108,12 +109,12 @@ def grade_stats(
 # ── internal helpers ──────────────────────────────────────────────────────────
 
 def _print_report(
-    console: Console,
-    report: GradeReport,
-    course_id: CourseId | None,
-    full: bool,
-    cards: bool,
-    output: OutputFmt,
+        console: Console,
+        report: GradeReport,
+        course_id: CourseId | None,
+        full: bool,
+        cards: bool,
+        output: OutputFmt,
 ) -> None:
     """Render a single course grade report in the requested display mode."""
     rows = report["rows"]

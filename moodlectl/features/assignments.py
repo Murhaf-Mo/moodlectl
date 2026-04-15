@@ -43,9 +43,9 @@ def _safe_name(name: str) -> str:
 
 
 def list_assignments(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    status: AssignmentStatus = "all",
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        status: AssignmentStatus = "all",
 ) -> list[AssignmentListing]:
     """Return assignments across courses filtered by status.
 
@@ -94,9 +94,9 @@ def list_assignments(
 
 
 def get_missing_submissions(
-    client: MoodleClientProtocol,
-    cmid: Cmid,
-    course_id: CourseId,
+        client: MoodleClientProtocol,
+        cmid: Cmid,
+        course_id: CourseId,
 ) -> list[MissingStudent]:
     """Return students enrolled as students who have not submitted to cmid.
 
@@ -122,10 +122,10 @@ def get_missing_submissions(
 
 
 def get_all_missing_submissions(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    course_map: CourseMap,
-    status: AssignmentStatus = "all",
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        course_map: CourseMap,
+        status: AssignmentStatus = "all",
 ) -> list[MissingResult]:
     """Return all students who have not submitted across all given courses/assignments.
 
@@ -203,10 +203,10 @@ def is_ungraded(submission: Submission) -> bool:
 
 
 def get_all_ungraded_submissions(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    course_map: CourseMap,
-    status: AssignmentStatus = "all",
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        course_map: CourseMap,
+        status: AssignmentStatus = "all",
 ) -> list[UngradedResult]:
     """Return all submitted-but-ungraded entries across all given courses/assignments.
 
@@ -268,10 +268,10 @@ def get_all_ungraded_submissions(
 
 
 def remind_missing_students(
-    client: MoodleClientProtocol,
-    cmid: Cmid,
-    course_id: CourseId,
-    message_text: str,
+        client: MoodleClientProtocol,
+        cmid: Cmid,
+        course_id: CourseId,
+        message_text: str,
 ) -> list[ReminderResult]:
     """Send a Moodle message to every student who has not submitted cmid.
 
@@ -290,11 +290,11 @@ def remind_missing_students(
 
 
 def remind_all_missing_students(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    course_map: CourseMap,
-    message_text: str,
-    status: AssignmentStatus = "all",
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        course_map: CourseMap,
+        message_text: str,
+        status: AssignmentStatus = "all",
 ) -> list[BulkReminderResult]:
     """Send a reminder to every student missing a submission, across all courses/assignments.
 
@@ -344,10 +344,10 @@ def remind_all_missing_students(
 
 
 def get_due_soon(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    course_map: CourseMap,
-    days: int = 7,
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        course_map: CourseMap,
+        days: int = 7,
 ) -> list[DueSoon]:
     """Return active assignments with a due date within the next `days` days.
 
@@ -384,12 +384,12 @@ def get_due_soon(
 
 
 def download_submissions(
-    client: MoodleClientProtocol,
-    course_ids: list[CourseId],
-    course_map: CourseMap,
-    status: AssignmentStatus = "all",
-    out_dir: Path = Path("assignments"),
-    ungraded_only: bool = False,
+        client: MoodleClientProtocol,
+        course_ids: list[CourseId],
+        course_map: CourseMap,
+        status: AssignmentStatus = "all",
+        out_dir: Path = Path("assignments"),
+        ungraded_only: bool = False,
 ) -> list[DownloadResult]:
     """Download submitted files for all assignments in the given courses.
 
@@ -421,11 +421,11 @@ def download_submissions(
     total_files = 0
 
     with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        console=console,
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
     ) as progress:
         task = progress.add_task("Scanning…", total=len(assignments))
 

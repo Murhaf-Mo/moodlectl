@@ -21,8 +21,8 @@ console = Console(legacy_windows=False)
 
 @app.command("show")
 def show_grade(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    user: int = typer.Option(..., "--student", "-s", help="Student user ID (from `courses participants`)."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        user: int = typer.Option(..., "--student", "-s", help="Student user ID (from `courses participants`)."),
 ):
     """Show the current grade and feedback for a student without changing anything.
 
@@ -53,11 +53,12 @@ def show_grade(
 
 @app.command("submit")
 def submit_grade(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    user: int = typer.Option(..., "--student", "-s", help="Student user ID (from `courses participants`)."),
-    grade: float = typer.Option(..., "--grade", "-g", help="Grade value (must be within the assignment's grade scale)."),
-    feedback: str = typer.Option("", "--feedback", "-f", help="Optional written feedback for the student."),
-    notify: bool = typer.Option(False, "--notify", help="Send the student an email notification after grading."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        user: int = typer.Option(..., "--student", "-s", help="Student user ID (from `courses participants`)."),
+        grade: float = typer.Option(..., "--grade", "-g",
+                                    help="Grade value (must be within the assignment's grade scale)."),
+        feedback: str = typer.Option("", "--feedback", "-f", help="Optional written feedback for the student."),
+        notify: bool = typer.Option(False, "--notify", help="Send the student an email notification after grading."),
 ):
     """Submit a grade for a student on an assignment.
 
@@ -115,13 +116,14 @@ def submit_grade(
 
 @app.command("batch")
 def batch_grade(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    file: Path = typer.Option(..., "--file", "-f", help="CSV file with columns: user_id, grade, feedback (optional)."),
-    dry_run: bool = typer.Option(
-        False, "--dry-run",
-        help="Validate the CSV and show what would be submitted without writing anything."
-    ),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        file: Path = typer.Option(..., "--file", "-f",
+                                  help="CSV file with columns: user_id, grade, feedback (optional)."),
+        dry_run: bool = typer.Option(
+            False, "--dry-run",
+            help="Validate the CSV and show what would be submitted without writing anything."
+        ),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Submit grades from a CSV file — one row per student.
 
@@ -175,7 +177,8 @@ def batch_grade(
     ok = sum(1 for r in results if r.get("ok") is True or r.get("ok") == "(dry run)")
     failed = sum(1 for r in results if r.get("ok") is False)
 
-    print_table(results, columns=["user_id", "grade", "grade_max", "grade_pct", "ok", "error"], fmt=cast(OutputFmt, output))
+    print_table(results, columns=["user_id", "grade", "grade_max", "grade_pct", "ok", "error"],
+                fmt=cast(OutputFmt, output))
 
     if dry_run:
         console.print(f"\n[dim](dry run) {len(results)} row(s) validated. Run without --dry-run to submit.[/dim]")
@@ -185,8 +188,8 @@ def batch_grade(
 
 @app.command("next")
 def next_to_grade(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    notify: bool = typer.Option(False, "--notify", help="Send the student an email notification after each grade."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        notify: bool = typer.Option(False, "--notify", help="Send the student an email notification after each grade."),
 ):
     """Interactively grade ungraded students one at a time.
 

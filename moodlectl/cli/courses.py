@@ -17,7 +17,7 @@ console = Console()
 
 @app.command("list")
 def list_courses(
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List all your enrolled courses.
 
@@ -34,13 +34,13 @@ def list_courses(
 
 @app.command("participants")
 def participants(
-    course_id: Optional[int] = typer.Option(
-        None, "--id", "--course", "-c",
-        help="Course ID (from `courses list`). Omit to show participants for all courses."
-    ),
-    role: str = typer.Option("", "--role", "-r", help="Filter by role, e.g. student or teacher (partial match)."),
-    name: str = typer.Option("", "--name", "-n", help="Filter by name (partial match)."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course_id: Optional[int] = typer.Option(
+            None, "--id", "--course", "-c",
+            help="Course ID (from `courses list`). Omit to show participants for all courses."
+        ),
+        role: str = typer.Option("", "--role", "-r", help="Filter by role, e.g. student or teacher (partial match)."),
+        name: str = typer.Option("", "--name", "-n", help="Filter by name (partial match)."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show participants for one course or all courses.
 
@@ -70,15 +70,15 @@ def participants(
 
 @app.command("inactive")
 def inactive_students(
-    course_id: Optional[int] = typer.Option(
-        None, "--course", "-c",
-        help="Course ID (from `courses list`). Omit to scan all your courses."
-    ),
-    days: int = typer.Option(
-        14, "--days", "-d",
-        help="Minimum days since last access (default: 14). Students inactive for at least this long are shown."
-    ),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course_id: Optional[int] = typer.Option(
+            None, "--course", "-c",
+            help="Course ID (from `courses list`). Omit to scan all your courses."
+        ),
+        days: int = typer.Option(
+            14, "--days", "-d",
+            help="Minimum days since last access (default: 14). Students inactive for at least this long are shown."
+        ),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show students who have not accessed the course in at least N days.
 

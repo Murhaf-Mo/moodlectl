@@ -440,12 +440,12 @@ class MoodleAPI(MoodleClientBase):
         return fields
 
     def submit_grade_for_user(
-        self,
-        cmid: Cmid,
-        user_id: UserId,
-        grade: float,
-        feedback: str = "",
-        notify_student: bool = False,
+            self,
+            cmid: Cmid,
+            user_id: UserId,
+            grade: float,
+            feedback: str = "",
+            notify_student: bool = False,
     ) -> float:
         """High-level grade submission: resolves IDs, fetches fresh form, submits.
 

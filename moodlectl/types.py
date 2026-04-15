@@ -37,6 +37,7 @@ type AssignmentStatus = Literal["active", "past", "all"]
 type OutputFmt = Literal["table", "json", "csv"]
 """Output format accepted by print_table()."""
 
+
 # ---------------------------------------------------------------------------
 # Client layer — shapes returned directly by MoodleAPI methods
 # ---------------------------------------------------------------------------
@@ -97,6 +98,7 @@ FormFields = dict[str, str]
 
 type CourseMap = dict[CourseId, Course]
 """Keyed-by-ID course lookup — built from get_courses() results."""
+
 
 # ---------------------------------------------------------------------------
 # Feature layer — shapes produced by features/ business-logic functions
@@ -219,7 +221,7 @@ class BatchResult(TypedDict):
     grade: float
     grade_max: float | str  # "?" when submission raised an error
     grade_pct: float | None
-    ok: bool | str           # True | False | "(dry run)"
+    ok: bool | str  # True | False | "(dry run)"
     error: str
 
 
@@ -232,6 +234,7 @@ class GradeStats(TypedDict):
     std_dev: float
     min: float
     max: float
+
 
 # ---------------------------------------------------------------------------
 # Client Protocol — features depend on this, not on the concrete MoodleAPI class
@@ -246,21 +249,32 @@ class MoodleClientProtocol(Protocol):
     """
 
     def get_courses(self) -> list[Course]: ...
+
     def get_course_participants(self, course_id: CourseId) -> list[Participant]: ...
+
     def get_grade_report(self, course_id: CourseId) -> GradeReport: ...
+
     def get_course_assignments(self, course_id: CourseId) -> list[AssignmentMeta]: ...
+
     def get_assignment_submissions(self, cmid: Cmid) -> list[Submission]: ...
+
     def get_assignment_brief_files(self, cmid: Cmid) -> list[FileRef]: ...
+
     def get_assignment_internal_id(self, cmid: Cmid) -> tuple[int, int]: ...
+
     def get_grade_form_fragment(self, context_id: int, user_id: UserId) -> FormFields: ...
+
     def submit_grade_for_user(
-        self,
-        cmid: Cmid,
-        user_id: UserId,
-        grade: float,
-        feedback: str,
-        notify_student: bool,
+            self,
+            cmid: Cmid,
+            user_id: UserId,
+            grade: float,
+            feedback: str,
+            notify_student: bool,
     ) -> float: ...
+
     def download_file(self, url: str, dest_path: object) -> None: ...
+
     def send_message(self, user_id: UserId, message: str) -> JSON: ...
+
     def delete_message(self, message_id: int) -> None: ...

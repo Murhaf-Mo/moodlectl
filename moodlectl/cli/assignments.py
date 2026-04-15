@@ -32,11 +32,11 @@ def _load(course: tuple[int, ...]) -> tuple[MoodleClient, list[CourseId], Course
 
 @app.command("list")
 def list_assignments(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    status: str = typer.Option("all", "--status", "-s", help="Filter by status: active, past, or all."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course: list[int] = typer.Option(
+            None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+        ),
+        status: str = typer.Option("all", "--status", "-s", help="Filter by status: active, past, or all."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List assignments across your courses.
 
@@ -73,14 +73,15 @@ def list_assignments(
             "submitted": a["submitted_count"],
         })
 
-    print_table(rows, columns=["cmid", "course", "assignment", "status", "due_date", "submitted"], fmt=cast(OutputFmt, output))
+    print_table(rows, columns=["cmid", "course", "assignment", "status", "due_date", "submitted"],
+                fmt=cast(OutputFmt, output))
 
 
 # ── info ──────────────────────────────────────────────────────────────────────
 
 @app.command("info")
 def assignment_info(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
 ):
     """Show full details for a single assignment.
 
@@ -131,14 +132,14 @@ def assignment_info(
     course_info = course_map.get(meta_course_id) if meta_course_id is not None else None
 
     rows: list[dict[str, str]] = [
-        {"field": "cmid",          "value": str(cmid)},
+        {"field": "cmid", "value": str(cmid)},
         {"field": "assignment_id", "value": str(assignment_id)},
-        {"field": "context_id",    "value": str(context_id)},
-        {"field": "course",        "value": course_info["shortname"] if course_info is not None else "unknown"},
-        {"field": "name",          "value": meta["name"] if meta else "unknown"},
-        {"field": "due_date",      "value": (meta["due_text"] or "No due date") if meta else "unknown"},
-        {"field": "submitted",     "value": str(meta["submitted_count"]) if meta else "unknown"},
-        {"field": "grade_max",     "value": str(grade_max) if grade_max is not None else "unknown"},
+        {"field": "context_id", "value": str(context_id)},
+        {"field": "course", "value": course_info["shortname"] if course_info is not None else "unknown"},
+        {"field": "name", "value": meta["name"] if meta else "unknown"},
+        {"field": "due_date", "value": (meta["due_text"] or "No due date") if meta else "unknown"},
+        {"field": "submitted", "value": str(meta["submitted_count"]) if meta else "unknown"},
+        {"field": "grade_max", "value": str(grade_max) if grade_max is not None else "unknown"},
     ]
 
     print_table(rows, columns=["field", "value"], fmt="table")
@@ -148,9 +149,9 @@ def assignment_info(
 
 @app.command("submissions")
 def list_submissions(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List who submitted an assignment and which files they uploaded.
 
@@ -191,26 +192,27 @@ def list_submissions(
             "files": filenames,
         })
 
-    print_table(rows, columns=["user_id", "fullname", "email", "status", "grading_status", "files"], fmt=cast(OutputFmt, output))
+    print_table(rows, columns=["user_id", "fullname", "email", "status", "grading_status", "files"],
+                fmt=cast(OutputFmt, output))
 
 
 # ── missing ───────────────────────────────────────────────────────────────────
 
 @app.command("missing")
 def missing_submissions(
-    cmid: Optional[int] = typer.Option(
-        None, "--assignment", "-a",
-        help="Assignment cmid (from `assignments list`). Requires --course. Omit to scan all assignments."
-    ),
-    course: list[int] = typer.Option(
-        None, "--course", "-c",
-        help="Course ID. Required with --assignment. Repeatable when scanning all assignments."
-    ),
-    status: str = typer.Option(
-        "all", "--status", "-s",
-        help="Filter by assignment status: active, past, or all. Only used when scanning all assignments."
-    ),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        cmid: Optional[int] = typer.Option(
+            None, "--assignment", "-a",
+            help="Assignment cmid (from `assignments list`). Requires --course. Omit to scan all assignments."
+        ),
+        course: list[int] = typer.Option(
+            None, "--course", "-c",
+            help="Course ID. Required with --assignment. Repeatable when scanning all assignments."
+        ),
+        status: str = typer.Option(
+            "all", "--status", "-s",
+            help="Filter by assignment status: active, past, or all. Only used when scanning all assignments."
+        ),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show students who have NOT submitted.
 
@@ -274,11 +276,11 @@ def missing_submissions(
 
 @app.command("ungraded")
 def ungraded_submissions(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course: list[int] = typer.Option(
+            None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+        ),
+        status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List all submitted assignments that have not been graded yet, across all courses.
 
@@ -304,7 +306,8 @@ def ungraded_submissions(
     console.print(f"\n[yellow]{len(ungraded)} ungraded submission(s) found.[/yellow]\n")
     print_table(
         ungraded,
-        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email", "grading_status", "files"],
+        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email",
+                 "grading_status", "files"],
         fmt=cast(OutputFmt, output),
     )
 
@@ -313,11 +316,11 @@ def ungraded_submissions(
 
 @app.command("remind")
 def remind_missing(
-    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
-    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
-    text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
+        text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Send a Moodle message to every student who hasn't submitted an assignment.
 
@@ -344,7 +347,8 @@ def remind_missing(
         print_table(missing, columns=["user_id", "fullname", "email"], fmt=cast(OutputFmt, output))
         return
 
-    results = assignments_feature.remind_missing_students(client, cmid=Cmid(cmid), course_id=CourseId(course), message_text=text)
+    results = assignments_feature.remind_missing_students(client, cmid=Cmid(cmid), course_id=CourseId(course),
+                                                          message_text=text)
     sent = sum(1 for r in results if r.get("sent"))
     console.print(f"\n[green]{sent}[/green] of {len(results)} message(s) sent.\n")
     print_table(results, columns=["user_id", "fullname", "email", "sent"], fmt=cast(OutputFmt, output))
@@ -354,13 +358,13 @@ def remind_missing(
 
 @app.command("remind-all")
 def remind_all_missing(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
-    text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course: list[int] = typer.Option(
+            None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+        ),
+        status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+        text: str = typer.Option(..., "--text", "-t", help="Message text to send to each missing student."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show who would be messaged without sending anything."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Send reminders to all students missing submissions, across all courses.
 
@@ -383,7 +387,8 @@ def remind_all_missing(
             console.print("[green]No missing submissions — nobody to remind.[/green]")
             raise typer.Exit()
         console.print(f"[dim](dry run) Would message {len(missing)} student/assignment pair(s):[/dim]\n")
-        print_table(missing, columns=["course", "assignment", "user_id", "fullname", "email"], fmt=cast(OutputFmt, output))
+        print_table(missing, columns=["course", "assignment", "user_id", "fullname", "email"],
+                    fmt=cast(OutputFmt, output))
         return
 
     results = assignments_feature.remind_all_missing_students(
@@ -403,11 +408,11 @@ def remind_all_missing(
 
 @app.command("due-soon")
 def due_soon(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    days: int = typer.Option(7, "--days", "-d", help="Number of days to look ahead (default: 7)."),
-    output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
+        course: list[int] = typer.Option(
+            None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+        ),
+        days: int = typer.Option(7, "--days", "-d", help="Number of days to look ahead (default: 7)."),
+        output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show active assignments with a due date in the next N days.
 
@@ -428,19 +433,21 @@ def due_soon(
         raise typer.Exit()
 
     console.print(f"\n[bold yellow]{len(due)} assignment(s) due in the next {days} day(s):[/bold yellow]\n")
-    print_table(due, columns=["course", "cmid", "assignment", "due_date", "submitted", "days_left"], fmt=cast(OutputFmt, output))
+    print_table(due, columns=["course", "cmid", "assignment", "due_date", "submitted", "days_left"],
+                fmt=cast(OutputFmt, output))
 
 
 # ── download ──────────────────────────────────────────────────────────────────
 
 @app.command("download")
 def download_submissions(
-    course: list[int] = typer.Option(
-        None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
-    ),
-    status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
-    out: Path = typer.Option(Path("assignments"), "--out", help="Output directory (default: ./assignments)."),
-    ungraded: bool = typer.Option(False, "--ungraded", help="Download only submissions that have not been graded yet."),
+        course: list[int] = typer.Option(
+            None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
+        ),
+        status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+        out: Path = typer.Option(Path("assignments"), "--out", help="Output directory (default: ./assignments)."),
+        ungraded: bool = typer.Option(False, "--ungraded",
+                                      help="Download only submissions that have not been graded yet."),
 ):
     """Download submitted assignment files, organised by course and status.
 

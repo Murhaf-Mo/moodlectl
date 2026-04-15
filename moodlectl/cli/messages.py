@@ -12,8 +12,8 @@ app = typer.Typer(help="Message commands")
 
 @app.command("send")
 def send(
-    to: int = typer.Option(..., "--to", help="Recipient user ID (from `courses participants`)"),
-    text: str = typer.Option(..., "--text", help="Message text"),
+        to: int = typer.Option(..., "--to", help="Recipient user ID (from `courses participants`)"),
+        text: str = typer.Option(..., "--text", help="Message text"),
 ):
     """Send a direct Moodle message to a student or user.
 
@@ -29,7 +29,7 @@ def send(
 
 @app.command("delete")
 def delete(
-    id: int = typer.Option(..., "--id", help="Message ID to delete"),
+        id: int = typer.Option(..., "--id", help="Message ID to delete"),
 ):
     """Delete (unsend) a previously sent message.
 

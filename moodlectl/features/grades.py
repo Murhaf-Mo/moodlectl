@@ -6,9 +6,9 @@ from moodlectl.types import CourseId, GradeReport, GradeStats, MoodleClientProto
 
 
 def get_grade_report(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    name: str = "",
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        name: str = "",
 ) -> GradeReport:
     """Return grade report for a course, optionally filtered by student name.
 

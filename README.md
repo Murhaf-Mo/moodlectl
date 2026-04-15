@@ -7,6 +7,7 @@ Automate your Moodle LMS from the command line. Built for CCK University instruc
 ## Setup
 
 **1. Install**
+
 ```bash
 pip install -e .
 ```
@@ -14,6 +15,7 @@ pip install -e .
 **2. Configure credentials**
 
 Copy `.env.example` to `.env` and fill in your values:
+
 ```
 MOODLE_BASE_URL=https://mylms.cck.edu.kw
 MOODLE_SESSION=
@@ -21,6 +23,7 @@ MOODLE_SESSKEY=
 ```
 
 To get your session values — log into Moodle in your browser, then:
+
 - `MOODLE_SESSION` → F12 → **Application** → **Cookies** → copy `MoodleSession` value
 - `MOODLE_SESSKEY` → F12 → **Network** → click any request to `service.php` → look in the request body for `sesskey`
 
@@ -159,6 +162,7 @@ moodlectl assignments download --course 568 --ungraded
 ```
 
 Downloaded files are organised as:
+
 ```
 assignments/
   COURSE_SHORT/
@@ -200,6 +204,7 @@ moodlectl grading next --assignment 18002 --notify
 ```
 
 ID reference:
+
 - `--assignment` is the cmid from `moodlectl assignments list`
 - `--student` is the user ID from `moodlectl courses participants`
 - `--grade` must be within the assignment's configured grade scale (shown as "Grade out of X")
@@ -229,6 +234,7 @@ All commands support `--output` / `-o`:
 ## Typical workflows
 
 **Morning check:**
+
 ```bash
 moodlectl auth check
 moodlectl summary
@@ -236,6 +242,7 @@ moodlectl assignments due-soon --days 3
 ```
 
 **Grading session:**
+
 ```bash
 moodlectl assignments ungraded --course 568          # see what needs grading
 moodlectl grading next --assignment 18002            # grade interactively
@@ -245,12 +252,14 @@ moodlectl grading batch --assignment 18002 --file grades.csv
 ```
 
 **Chase late submissions:**
+
 ```bash
 moodlectl assignments missing --assignment 18002 --course 568
 moodlectl assignments remind --assignment 18002 --course 568 --text "Deadline is Friday."
 ```
 
 **End of term export:**
+
 ```bash
 moodlectl grades show --course 568 --output csv > grades.csv
 moodlectl assignments missing --output csv > missing.csv

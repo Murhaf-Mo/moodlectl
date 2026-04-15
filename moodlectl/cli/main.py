@@ -23,13 +23,13 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-app.add_typer(auth.app,        name="auth")
-app.add_typer(courses.app,     name="courses")
-app.add_typer(grades.app,      name="grades")
+app.add_typer(auth.app, name="auth")
+app.add_typer(courses.app, name="courses")
+app.add_typer(grades.app, name="grades")
 app.add_typer(assignments.app, name="assignments")
-app.add_typer(grading.app,     name="grading")
-app.add_typer(messages.app,    name="messages")
-app.add_typer(reports.app,     name="reports")
+app.add_typer(grading.app, name="grading")
+app.add_typer(messages.app, name="messages")
+app.add_typer(reports.app, name="reports")
 
 
 @app.command("summary")
