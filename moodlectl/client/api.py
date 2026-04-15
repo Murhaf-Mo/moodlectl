@@ -1,9 +1,32 @@
 from __future__ import annotations
 
+import json
+import re
+from urllib.parse import urlencode
+
+from bs4 import BeautifulSoup
+
 from moodlectl.client.base import MoodleClientBase
+
+# Shown whenever an HTTP response redirects to the login page.
+_SESSION_EXPIRED = "Re-login in your browser and update MOODLE_SESSION in .env"
 
 
 class MoodleAPI(MoodleClientBase):
+
+    def _get_soup(self, url: str, params: dict | None = None, context: str = "") -> BeautifulSoup:
+        """GET a Moodle page, check for session expiry, and return a parsed BeautifulSoup.
+
+        Raises RuntimeError with a clear message if the response redirects to login.
+        context: short description of what was being loaded (used in the error message).
+        """
+        resp = self._session.get(url, params=params or {})
+        if "login" in resp.url:
+            detail = f" while loading {context}" if context else ""
+            raise RuntimeError(
+                f"Session expired{detail}.\n{_SESSION_EXPIRED}"
+            )
+        return BeautifulSoup(resp.text, "html.parser")
 
     # ── Courses ───────────────────────────────────────────────────────────────
 
@@ -26,16 +49,13 @@ class MoodleAPI(MoodleClientBase):
 
         Table columns: [checkbox, fullname, email, roles, groups, lastaccess, status]
         """
-        from bs4 import BeautifulSoup
-
-        resp = self._session.get(
+        soup = self._get_soup(
             f"{self.base_url}/user/index.php",
             params={"id": course_id, "perpage": 5000},
+            context=f"participants for course {course_id}",
         )
 
-        soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table", {"id": "participants"})
-
         if not table:
             return []
 
@@ -84,33 +104,24 @@ class MoodleAPI(MoodleClientBase):
 
         Returns {"columns": [...], "rows": [{"id", "fullname", "email", col: grade, ...}]}
         """
-        import re
-        from bs4 import BeautifulSoup
-
         columns: list[str] = []
         all_student_rows: list = []
         page = 0
 
         while True:
-            resp = self._session.get(
+            soup = self._get_soup(
                 f"{self.base_url}/grade/report/grader/index.php",
                 params={"id": course_id, "page": page},
+                context="grade report",
             )
 
-            if "login" in resp.url:
-                raise RuntimeError(
-                    "Grade report requires a fresh session.\n"
-                    "Re-login in your browser and update MOODLE_SESSION in .env"
-                )
-
-            soup = BeautifulSoup(resp.text, "html.parser")
             table = soup.find("table", {"id": "user-grades"})
             if not table:
                 break
 
             all_rows = table.find_all("tr")
 
-            # Parse column headers once (from first page)
+            # Parse column headers once (from first page only)
             if not columns:
                 heading_row = next(
                     (r for r in all_rows if "heading" in r.get("class", [])), None
@@ -161,7 +172,7 @@ class MoodleAPI(MoodleClientBase):
                 row[total_col] = total
                 all_student_rows.append(row)
 
-            # Stop when the page returned fewer rows than a full page (20)
+            # Stop when a page returns fewer than a full page of rows (20)
             if len(page_rows) < 20:
                 break
             page += 1
@@ -176,20 +187,12 @@ class MoodleAPI(MoodleClientBase):
         Returns list of:
           {cmid, name, due_text, submitted_count}
         """
-        import re
-        from bs4 import BeautifulSoup
-
-        resp = self._session.get(
+        soup = self._get_soup(
             f"{self.base_url}/mod/assign/index.php",
             params={"id": course_id},
+            context=f"assignments for course {course_id}",
         )
-        if "login" in resp.url:
-            raise RuntimeError(
-                "Session expired while loading assignments.\n"
-                "Re-login in your browser and update MOODLE_SESSION in .env"
-            )
 
-        soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table", class_="generaltable")
         if not table:
             return []
@@ -216,10 +219,8 @@ class MoodleAPI(MoodleClientBase):
                 continue
             cmid = int(m.group(1))
 
-            # col 2: due date text
             due_text = cols[2].get_text(strip=True) if len(cols) > 2 else ""
 
-            # col 3: number of submitted assignments
             submitted_count = 0
             if len(cols) > 3:
                 try:
@@ -241,19 +242,12 @@ class MoodleAPI(MoodleClientBase):
 
         Returns list of {filename, url} for files attached to the assignment description.
         """
-        from bs4 import BeautifulSoup
-
-        resp = self._session.get(
+        soup = self._get_soup(
             f"{self.base_url}/mod/assign/view.php",
             params={"id": cmid},
+            context=f"assignment {cmid}",
         )
-        if "login" in resp.url:
-            raise RuntimeError(
-                "Session expired while loading assignment.\n"
-                "Re-login in your browser and update MOODLE_SESSION in .env"
-            )
 
-        soup = BeautifulSoup(resp.text, "html.parser")
         files = []
         for a in soup.find_all("a", href=True):
             href = a["href"]
@@ -267,24 +261,16 @@ class MoodleAPI(MoodleClientBase):
         """Scrape the grading page for an assignment.
 
         Returns list of:
-          {user_id, fullname, email, status, files: [{filename, url}]}
+          {user_id, fullname, email, status, grading_status, files: [{filename, url}]}
 
-        Only entries with at least one file are included.
+        Only entries with at least one uploaded file are included.
         """
-        import re
-        from bs4 import BeautifulSoup
-
-        resp = self._session.get(
+        soup = self._get_soup(
             f"{self.base_url}/mod/assign/view.php",
             params={"id": cmid, "action": "grading", "perpage": 1000},
+            context=f"submissions for assignment {cmid}",
         )
-        if "login" in resp.url:
-            raise RuntimeError(
-                "Session expired while loading submissions.\n"
-                "Re-login in your browser and update MOODLE_SESSION in .env"
-            )
 
-        soup = BeautifulSoup(resp.text, "html.parser")
         table = soup.find("table", class_="generaltable")
         if not table:
             return []
@@ -299,7 +285,7 @@ class MoodleAPI(MoodleClientBase):
             if len(cols) < 9:
                 continue
 
-            # col 2 (c2): fullname + link with user_id
+            # col 2: fullname + link with user_id
             name_cell = cols[2]
             fullname = name_cell.get_text(strip=True)
             user_id = 0
@@ -312,25 +298,16 @@ class MoodleAPI(MoodleClientBase):
             if not fullname or user_id == 0:
                 continue
 
-            # col 3 (c3 email): email
             email = cols[3].get_text(strip=True)
-
-            # col 4 (c4): submission status
             status_text = cols[4].get_text(strip=True)
-
-            # col 5 (c5): grading status — "Graded", "Not graded", etc.
             grading_status = cols[5].get_text(strip=True) if len(cols) > 5 else ""
 
-            # col 8 (c8): file submissions
-            file_cell = cols[8]
-            files = []
-            for a in file_cell.find_all("a"):
-                href = a.get("href", "")
-                if "pluginfile.php" in href:
-                    files.append({
-                        "filename": a.get_text(strip=True),
-                        "url": href,
-                    })
+            # col 8: file submissions
+            files = [
+                {"filename": a.get_text(strip=True), "url": a["href"]}
+                for a in cols[8].find_all("a")
+                if "pluginfile.php" in a.get("href", "")
+            ]
 
             if not files:
                 continue
@@ -352,15 +329,12 @@ class MoodleAPI(MoodleClientBase):
         These IDs are needed for grade submission and differ from the cmid.
         Scraped from the grader page's data attributes.
         """
-        from bs4 import BeautifulSoup
-
-        resp = self._session.get(
+        soup = self._get_soup(
             f"{self.base_url}/mod/assign/view.php",
             params={"id": cmid, "action": "grader"},
+            context=f"grader page for assignment {cmid}",
         )
-        if "login" in resp.url:
-            raise RuntimeError("Session expired — re-login and update MOODLE_SESSION in .env")
-        soup = BeautifulSoup(resp.text, "html.parser")
+
         grade_div = soup.find(attrs={"data-region": "grade"})
         if not grade_div:
             raise RuntimeError(f"Could not find grade panel for cmid={cmid}")
@@ -375,9 +349,6 @@ class MoodleAPI(MoodleClientBase):
         The itemid for the feedback editor changes per request — always fetch
         a fresh fragment immediately before submitting.
         """
-        import re
-        from bs4 import BeautifulSoup
-
         result = self.ajax("core_get_fragment", {
             "component": "mod_assign",
             "callback": "gradingpanel",
@@ -415,30 +386,9 @@ class MoodleAPI(MoodleClientBase):
         fields["__grade_max__"] = str(grade_max) if grade_max else ""
         return fields
 
-    def submit_grade(
-        self,
-        assignment_id: int,
-        user_id: int,
-        grade: float,
-        feedback: str = "",
-        notify_student: bool = False,
-    ) -> None:
-        """Submit a grade for a student's assignment submission.
-
-        Fetches a fresh form fragment to get the one-time itemid, then calls
-        mod_assign_submit_grading_form via the AJAX API.
-
-        Raises RuntimeError if the grade could not be saved.
-        """
-        import json
-        from urllib.parse import urlencode
-
-        # We need context_id to load the fragment — get it via the grade_form_fragment
-        # by first resolving context_id from the assignment. The caller must provide
-        # the already-resolved form fields via get_grade_form_fragment(); or we call
-        # it here with assignment_id as a placeholder (context_id is passed in).
-        # This method expects assignment_id (internal) and context_id to be known.
-        raise NotImplementedError("Use submit_grade_with_context instead")
+    def submit_grade(self, *args, **kwargs):
+        """Deprecated stub — use submit_grade_for_user instead."""
+        raise NotImplementedError("Use submit_grade_for_user instead")
 
     def submit_grade_for_user(
         self,
@@ -452,14 +402,16 @@ class MoodleAPI(MoodleClientBase):
 
         Returns the grade_max so the caller can display it.
         Raises RuntimeError if the grade could not be saved.
-        """
-        import json
-        from urllib.parse import urlencode
 
+        Steps:
+          1. Scrape grader page → (assignment_id, context_id) — different from cmid
+          2. Fetch fresh form fragment — itemid changes each request, must not be cached
+          3. Submit via mod_assign_submit_grading_form — empty list = success
+        """
         # 1. Resolve internal IDs from cmid
         assignment_id, context_id = self.get_assignment_internal_id(cmid)
 
-        # 2. Load fresh form fragment (itemid changes each time)
+        # 2. Load fresh form fragment (itemid is one-time use)
         fields = self.get_grade_form_fragment(context_id, user_id)
         grade_max = float(fields.pop("__grade_max__") or 0)
 
@@ -475,7 +427,7 @@ class MoodleAPI(MoodleClientBase):
             "jsonformdata": json.dumps(urlencode(fields)),
         })
 
-        # Empty list = success; non-empty = validation errors
+        # Empty list = success; non-empty list = validation errors
         if result:
             errors = "; ".join(e.get("message", str(e)) for e in result)
             raise RuntimeError(f"Grade submission failed: {errors}")
@@ -483,7 +435,10 @@ class MoodleAPI(MoodleClientBase):
         return grade_max
 
     def download_file(self, url: str, dest_path) -> None:
-        """Download an authenticated Moodle file (pluginfile.php) to dest_path."""
+        """Download an authenticated Moodle file (pluginfile.php) to dest_path.
+
+        Rewrites webservice/pluginfile.php → pluginfile.php for session-cookie auth.
+        """
         from pathlib import Path
 
         # Moodle AJAX sometimes returns webservice/pluginfile.php URLs even when
