@@ -26,6 +26,10 @@ dev = [
 export = [
     "openpyxl>=3.1",
 ]
+analytics = [
+    "plotext>=5.2.8",
+    "matplotlib>=3.8.0",
+]
 
 [project.scripts]
 moodlectl = "moodlectl.cli.main:app"
@@ -35,8 +39,11 @@ pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
-# openpyxl is an optional dependency — suppress missing-source warning
+# openpyxl and plotext are optional deps without full stubs — suppress noise
 reportMissingModuleSource = "none"
+reportMissingTypeStubs = "none"
+# matplotlib stubs use Unknown for **kwargs throughout — not a code defect
+reportUnknownMemberType = "none"
 
 [tool.ruff]
 target-version = "py312"

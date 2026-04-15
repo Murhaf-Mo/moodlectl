@@ -10,8 +10,10 @@ cookies (Microsoft SSO; no programmatic login possible).
 ## Setup & Commands
 
 ```bash
-pip install -e ".[dev]"          # install with dev deps
-pip install -e ".[dev,export]"   # also enable Excel export
+pip install -e ".[dev]"                    # install with dev deps
+pip install -e ".[dev,export]"             # also enable Excel export
+pip install -e ".[dev,analytics]"          # also enable grade/submission analytics
+pip install -e ".[dev,export,analytics]"   # everything
 
 moodlectl --help                 # all commands
 pytest                           # run all tests
@@ -76,13 +78,14 @@ CLI.
 
 | Group         | Commands                                                                                             | Purpose                                        |
 |---------------|------------------------------------------------------------------------------------------------------|------------------------------------------------|
-| `auth`        | `check`                                                                                              | Verify session validity before long operations |
-| `courses`     | `list`, `participants`, `inactive`                                                                   | Enrolled courses and participants              |
-| `grades`      | `show`, `stats`                                                                                      | Grade reports and statistics                   |
-| `assignments` | `list`, `info`, `submissions`, `missing`, `ungraded`, `remind`, `remind-all`, `due-soon`, `download` | Assignment management                          |
-| `grading`     | `show`, `submit`, `batch`, `next`                                                                    | Grade submission                               |
-| `messages`    | `send`, `delete`                                                                                     | Direct messaging                               |
-| `summary`     | (top-level)                                                                                          | Quick overview of upcoming deadlines           |
+| `auth`        | `check`                                                                                              | Verify session validity before long operations              |
+| `courses`     | `list`, `participants`, `inactive`                                                                   | Enrolled courses and participants                           |
+| `grades`      | `show`, `stats`                                                                                      | Grade reports and statistics                                |
+| `assignments` | `list`, `info`, `submissions`, `missing`, `ungraded`, `remind`, `remind-all`, `due-soon`, `download` | Assignment management                                       |
+| `grading`     | `show`, `submit`, `batch`, `next`                                                                    | Grade submission                                            |
+| `messages`    | `send`, `delete`                                                                                     | Direct messaging                                            |
+| `analytics`   | `grades-dist`, `grades-boxplot`, `letter-grades`, `submission-status`, `grade-progression`, `at-risk`, `summary` | Grade & submission analytics (requires `[analytics]`) |
+| `summary`     | (top-level)                                                                                          | Quick overview of upcoming deadlines                        |
 
 ### Key design decisions
 
@@ -112,6 +115,17 @@ module.
 
 **`assignments remind` / `remind-all`** chain `get_missing_submissions` → `client.send_message()`. Always offer
 `--dry-run`.
+
+**`analytics`** commands require `pip install moodlectl[analytics]` (plotext + matplotlib). Each command checks for
+the dependency before any API calls and prints a clear install hint if missing. Charts render inline in the terminal
+by default; pass `--save <file.png>` to write a PNG/PDF instead via matplotlib's Agg headless backend.
+
+**`analytics letter-grades` / `analytics at-risk`** auto-detect `grade_max` from `compute_stats().max` so courses
+graded out of 40 or 50 are bucketed correctly without any flags. `--threshold` in `at-risk` is a percentage (default
+60%) applied against the auto-detected max.
+
+**`analytics grade-progression`** uses integer x-axis indices with `_pt.xticks()` for the terminal path because
+plotext interprets bare string x-values as dates and raises a `ValueError`.
 
 ### `features/` public API
 
@@ -147,6 +161,24 @@ module.
 - `_parse_lastaccess_days(text)` → int or None (internal helper)
 - `_normalise(user)` → handles both API format (roles as list of dicts) and scrape format (roles as string)
 
+**`features/analytics.py`** (requires `[analytics]`):
+
+- `get_grade_distribution(client, course_id, grade_item)` → `(list[float], column_name)` — parses grade strings from the grade report; `grade_item=None` uses Course Total
+- `get_per_assignment_grades(client, course_id)` → `list[AssignmentGrades]` — one entry per grade-item column (excludes Course Total); columns with no numeric values are omitted
+- `get_submission_summary(client, course_id)` → `list[SubmissionSummary]` — submitted / ungraded / missing counts per assignment using `is_ungraded()` from `features/assignments.py`
+- `get_at_risk_students(client, course_id, threshold)` → `list[AtRiskStudent]` — cross-references grade report with submission summary; `threshold` is an absolute grade value; `action` field is `"remind"` / `"grade"` / `"both"` / `""`
+
+**`output/charts.py`** (requires `[analytics]`):
+
+- `plot_grade_histogram(grades, course_name, bins, save_path, fmt)` — histogram of grade values
+- `plot_grade_boxplot(data, course_name, save_path, fmt)` — median bar chart per assignment (terminal); full box plot (file)
+- `plot_letter_grade_bars(grades, course_name, grade_max, save_path, fmt)` — A/B/C/D/F bar chart
+- `plot_submission_status(summary, save_path, fmt)` — stacked bar for one assignment
+- `plot_submission_rate_by_assignment(data, course_name, save_path, fmt)` — grouped bar: submitted vs. missing per assignment
+- `plot_grade_progression(data, course_name, save_path, fmt)` — mean/median line chart across assignments
+- `_bucket_grades(grades, grade_max)` → `dict[str, int]` — internal: buckets floats into A/B/C/D/F by percentage of `grade_max`
+- `_AVAILABLE: bool` — module-level flag; `False` when plotext/matplotlib are not installed; checked by each public function
+
 ### Grade submission internals
 
 `grading submit` / `grading batch` / `grading next` all call `client.submit_grade_for_user()` which does:
@@ -164,12 +196,27 @@ The grade scale ("out of X") is parsed from the label "Grade out of X" in the fr
 parsed only from page 0. `shorten_columns()` strips Arabic parenthesised suffixes and truncates — pass `max_len=50` for
 `--full` view.
 
+### Type system (`moodlectl/types.py`)
+
+All public API shapes are centralized in `types.py`. Every layer (client, features, CLI) imports from here —
+no `Any`, no ad-hoc dicts in function signatures.
+
+Key types relevant to analytics:
+- `AssignmentGrades` — `{assignment: str, grades: list[float]}` — per-assignment grade list from grade report
+- `SubmissionSummary` — `{cmid, name, submitted, ungraded, missing, total}` — submission state counts per assignment
+- `AtRiskStudent` — `{user_id, fullname, email, course_total, missing_count, ungraded_count, action}` — students flagged by `get_at_risk_students()`
+
+Semantic ID NewTypes (`Cmid`, `UserId`, `CourseId`) prevent accidental mixing of IDs. Cast plain ints at the CLI
+boundary: `CourseId(course_id)`, `Cmid(cmid)`.
+
 ### Adding a new feature
 
 1. Add a method to `client/api.py` — if the AJAX function isn't registered, scrape the page instead
-2. Add business logic to `features/<area>.py`
-3. Add a CLI command to `cli/<area>.py` and register it in `cli/main.py` if it's a new group
-4. Use `output/formatters.print_table(data, columns, fmt)` for output
+2. Add any new TypedDicts to `moodlectl/types.py`; add the new type to `MoodleClientProtocol` if it's a client method
+3. Add business logic to `features/<area>.py`
+4. Add a CLI command to `cli/<area>.py` and register it in `cli/main.py` if it's a new group
+5. Use `output/formatters.print_table(data, columns, fmt)` for output
+6. For chart output use `output/charts.py` — add to the `[analytics]` optional group if a new lib is needed
 
 ### Filtering pattern
 

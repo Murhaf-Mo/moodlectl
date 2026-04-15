@@ -236,6 +236,33 @@ class GradeStats(TypedDict):
     max: float
 
 
+class AssignmentGrades(TypedDict):
+    """Per-assignment grade list — one entry per grade-item column in the grade report."""
+    assignment: str       # grade item column name (e.g. "Assignment 1")
+    grades: list[float]   # one float per student who has a numeric grade
+
+
+class SubmissionSummary(TypedDict):
+    """Counts of submission states for one assignment."""
+    cmid: Cmid
+    name: str
+    submitted: int    # has at least one uploaded file
+    ungraded: int     # submitted but grading_status has no digits
+    missing: int      # enrolled students with no submission on record
+    total: int        # submitted + missing (enrolled student count)
+
+
+class AtRiskStudent(TypedDict):
+    """Student who may need instructor attention."""
+    user_id: UserId
+    fullname: str
+    email: str
+    course_total: float | None  # None when the grade report row has no numeric value yet
+    missing_count: int          # assignments with no file submission
+    ungraded_count: int         # submissions awaiting a grade
+    action: str                 # "remind" | "grade" | "both"
+
+
 # ---------------------------------------------------------------------------
 # Client Protocol — features depend on this, not on the concrete MoodleAPI class
 # ---------------------------------------------------------------------------
