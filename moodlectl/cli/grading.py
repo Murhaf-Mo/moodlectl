@@ -21,9 +21,9 @@ def submit_grade(
 ):
     """Submit a grade for a student on an assignment.
 
-    The grade must be within the assignment's configured grade scale
-    (shown as 'Grade out of X' in Moodle). Use `assignments list` to find
-    the assignment cmid and `courses participants` to find the student ID.
+    The grade must be within the assignment's configured grade scale (shown as "Grade out of X").
+    Use `assignments list` to find the cmid and `courses participants` to find the student ID.
+    Use `grading show-grade` first to see the current grade before overwriting.
 
     Examples:
       moodlectl grading submit --assignment 18002 --student 1557 --grade 10
@@ -53,3 +53,35 @@ def submit_grade(
         f"[green]Saved.[/green] Grade: [bold]{result['grade']} / {grade_max}[/bold]"
         + (f" ({grade_pct}%)" if grade_pct is not None else "")
     )
+
+
+@app.command("show-grade")
+def show_grade(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
+    user: int = typer.Option(..., "--student", "-s", help="Student user ID (from `courses participants`)"),
+):
+    """Show the current grade and feedback for a student without changing anything.
+
+    Useful for checking what was previously graded before submitting a new grade.
+    Use `assignments list` to find the cmid and `courses participants` to find the student ID.
+
+    Examples:
+      moodlectl grading show-grade --assignment 18002 --student 1557
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    try:
+        assignment_id, context_id = client.get_assignment_internal_id(cmid)
+        fields = client.get_grade_form_fragment(context_id, user)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    grade = fields.get("grade", "—")
+    grade_max = fields.get("__grade_max__", "?")
+    feedback = fields.get("assignfeedbackcomments_editor[text]", "").strip() or "—"
+
+    console.print(f"Assignment : [bold]{cmid}[/bold]")
+    console.print(f"Student    : [bold]{user}[/bold]")
+    console.print(f"Grade      : [bold]{grade} / {grade_max}[/bold]")
+    console.print(f"Feedback   : {feedback}")

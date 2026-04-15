@@ -60,6 +60,77 @@ def list_assignments(
     print_table(rows, columns=["course", "assignment", "status", "due_date", "submitted"], fmt=output)
 
 
+@app.command("submissions")
+def list_submissions(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+):
+    """List who submitted an assignment and which files they uploaded — no downloads.
+
+    Shows student name, email, submission status, and filenames.
+    Use --output csv to export the list.
+
+    Examples:
+      moodlectl assignments submissions --assignment 18002
+      moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    try:
+        submissions = client.get_assignment_submissions(cmid)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not submissions:
+        console.print("[yellow]No submissions found.[/yellow]")
+        raise typer.Exit()
+
+    rows = []
+    for s in submissions:
+        filenames = ", ".join(f["filename"] for f in s["files"]) if s["files"] else "—"
+        rows.append({
+            "user_id": s["user_id"],
+            "fullname": s["fullname"],
+            "email": s["email"],
+            "status": s["status"],
+            "files": filenames,
+        })
+
+    print_table(rows, columns=["user_id", "fullname", "email", "status", "files"], fmt=output)
+
+
+@app.command("missing")
+def missing_submissions(
+    cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)"),
+    course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)"),
+    output: str = typer.Option("table", "--output", "-o", help="table, json, csv"),
+):
+    """Show students who have NOT submitted for an assignment.
+
+    Compares enrolled students against submitted ones and lists the difference,
+    along with each student's last access time so you can gauge activity.
+
+    Examples:
+      moodlectl assignments missing --assignment 18002 --course 568
+      moodlectl assignments missing --assignment 18002 --course 568 --output csv > missing.csv
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    try:
+        missing = assignments_feature.get_missing_submissions(client, cmid=cmid, course_id=course)
+    except RuntimeError as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    if not missing:
+        console.print("[green]All students have submitted.[/green]")
+        raise typer.Exit()
+
+    console.print(f"[yellow]{len(missing)} student(s) have not submitted.[/yellow]\n")
+    print_table(missing, columns=["user_id", "fullname", "email", "lastaccess"], fmt=output)
+
+
 @app.command("download")
 def download_submissions(
     course: list[int] = typer.Option(

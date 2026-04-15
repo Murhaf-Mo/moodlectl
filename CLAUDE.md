@@ -52,9 +52,10 @@ CLI command → features/ function → MoodleClient method → HTTP
 
 **`cli/`** — Typer sub-apps, one file per command group, registered in `cli/main.py`. Each command calls `MoodleClient.from_config(Config.load())`. All commands support `--output table|json|csv` passed to `output/formatters.print_table()`. Filtering flags (`--role`, `--name`) are forwarded to `features/`.
 
-`grades show` has three display modes controlled by flags:
-- default (`table`): summary — name + course total only
-- `--full`: vertical panel per student showing every grade item (uses `shorten_columns(max_len=50)`)
+`grades show` has four display modes controlled by flags:
+- default: summary table — name + course total only; `--course` is optional (omit for all courses)
+- `--full`: wide table with every grade item as a column (uses `shorten_columns(max_len=50)`)
+- `--cards`: one Rich Panel per student listing every grade item vertically
 - `--output csv/json`: full column names including Arabic, UTF-8-SIG encoded for Excel
 
 **`ai/`** — stubs for Claude API integration. `ai/client.py` (`AIClient`) wraps `anthropic.Anthropic`; `ai/grader.py` and `ai/responder.py` are `NotImplementedError` placeholders. Wire them at the CLI layer — features stay AI-free.
@@ -71,7 +72,9 @@ Filtering is always done in `features/` after fetching — never in the client. 
 ### Grade report pagination
 `get_grade_report()` fetches pages (`?page=0`, `?page=1`, …) until a page returns fewer than 20 rows. Column headers are parsed only from page 0. `shorten_columns()` in `features/grades.py` strips Arabic parenthesised suffixes and truncates — pass `max_len=50` for the `--full` view.
 
-### Grade submission
+### Grade submission and inspection
+`moodlectl grading show-grade` reads the current grade and feedback for a student without writing anything: calls `get_assignment_internal_id(cmid)` then `get_grade_form_fragment(context_id, user_id)` and prints the `grade` and `assignfeedbackcomments_editor[text]` fields.
+
 `moodlectl grading submit` calls `client.submit_grade_for_user(cmid, user_id, grade)` which does three steps:
 1. Scrape grader page to get `(assignment_id, context_id)` — these are different from the cmid
 2. Call `core_get_fragment` (`mod_assign/gradingpanel`) to get a fresh form with a one-time `itemid` for the feedback editor — **must be fetched immediately before submission**, not cached
@@ -79,10 +82,13 @@ Filtering is always done in `features/` after fetching — never in the client. 
 
 The grade scale ("out of X") is parsed from the label "Grade out of X" in the fragment HTML. The cmid shown in `assignments list` is the course-module ID; the internal `assignmentid` is different and resolved at submission time.
 
-### Assignment downloads
-`features/assignments.py` has two public functions:
+### Assignment downloads and visibility
+`features/assignments.py` public functions:
 - `list_assignments(client, course_ids, status)` — `status` is `active` (future due date or none), `past`, or `all`. Due dates are parsed from Moodle text format `"%A, %d %B %Y, %I:%M %p"`.
 - `download_submissions(client, course_ids, course_map, status, out_dir)` — downloads to `{out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file`. `course_map` is `{course_id: course_dict}` from `get_courses()`.
+- `get_missing_submissions(client, cmid, course_id)` — returns students enrolled as `student` role who have no entry in `get_assignment_submissions(cmid)`; used by `assignments missing`.
+
+CLI commands `assignments submissions` and `assignments missing` call the client/features directly without downloading any files.
 
 `_safe_name()` strips filesystem-illegal characters and limits to 80 chars. The CLI resolves course IDs from `get_courses()` when `--course` is omitted. Assignments with `submitted_count == 0` are skipped without scraping the grading page.
 

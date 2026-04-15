@@ -73,6 +73,34 @@ def list_assignments(
     return results
 
 
+def get_missing_submissions(
+    client: MoodleClient,
+    cmid: int,
+    course_id: int,
+) -> list[dict]:
+    """Return students enrolled as students who have not submitted to cmid.
+
+    Each result: {user_id, fullname, email, lastaccess}
+    """
+    submissions = client.get_assignment_submissions(cmid)
+    submitted_ids = {s["user_id"] for s in submissions}
+
+    participants = client.get_course_participants(course_id)
+    missing = []
+    for p in participants:
+        roles = p.get("roles", "")
+        if "student" not in roles.lower():
+            continue
+        if p["id"] not in submitted_ids:
+            missing.append({
+                "user_id": p["id"],
+                "fullname": p["fullname"],
+                "email": p["email"],
+                "lastaccess": p.get("lastaccess", 0),
+            })
+    return missing
+
+
 def download_submissions(
     client: MoodleClient,
     course_ids: list[int],

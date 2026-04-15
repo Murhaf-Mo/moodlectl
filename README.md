@@ -43,22 +43,25 @@ moodlectl courses participants --id 568
 
 # Filter by role or name (partial match)
 moodlectl courses participants --id 568 --role student
-moodlectl courses participants --id 568 --role teacher
 moodlectl courses participants --id 568 --name "Ali"
 ```
 
 ### Grades
 
 ```bash
-# Summary: name + course total
+# Summary: name + course total (default for all courses)
+moodlectl grades show
 moodlectl grades show --course 568
 
-# Full detail: one panel per student with every grade item
+# Wide table: all grade items in one table
 moodlectl grades show --course 568 --full
 
-# Filter to specific students
-moodlectl grades show --course 568 --name "Abdulrahman"
-moodlectl grades show --course 568 --full --name "Ali"
+# Cards: one panel per student with all grade items
+moodlectl grades show --course 568 --cards
+
+# Filter to a specific student (partial name match)
+moodlectl grades show --course 568 --name "Aljawhara"
+moodlectl grades show --course 568 --name "Aljawhara" --cards
 
 # Export all grade columns to CSV (opens correctly in Excel)
 moodlectl grades show --course 568 --output csv > grades.csv
@@ -67,23 +70,22 @@ moodlectl grades show --course 568 --output csv > grades.csv
 ### Assignments
 
 ```bash
-# List all assignments across all courses (shows status: active / past)
+# List all assignments across all courses (shows cmid, status: active / past)
 moodlectl assignments list
-
-# Filter by status
 moodlectl assignments list --status active
-moodlectl assignments list --status past
+moodlectl assignments list --course 568 --status past
 
-# Specific courses only
-moodlectl assignments list --course 568 --course 570
+# List who submitted and which files — no downloads
+moodlectl assignments submissions --assignment 18002
+moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
+
+# Show students who have NOT submitted (with their last access time)
+moodlectl assignments missing --assignment 18002 --course 568
+moodlectl assignments missing --assignment 18002 --course 568 --output csv > missing.csv
 
 # Download all submitted files (organised by course / active|past / assignment / student)
 moodlectl assignments download
-
-# Download only active assignments for a specific course
 moodlectl assignments download --course 568 --status active
-
-# Choose a custom output directory
 moodlectl assignments download --course 568 --status past --out ./archive
 ```
 
@@ -104,7 +106,10 @@ assignments/
 ### Grading
 
 ```bash
-# Submit a grade for a student on an assignment
+# Check the current grade and feedback before overwriting
+moodlectl grading show-grade --assignment 18002 --student 1557
+
+# Submit a grade
 moodlectl grading submit --assignment 18002 --student 1557 --grade 10
 
 # With written feedback
@@ -122,7 +127,10 @@ moodlectl grading submit -a 18002 -s 1557 -g 10 --notify
 
 ```bash
 # Send a direct message (use student ID from `courses participants`)
-moodlectl messages send --to 1557 --text "Your assignment is due tomorrow"
+moodlectl messages send --to 1557 --text "Your assignment is due tomorrow."
+
+# Delete (unsend) a message
+moodlectl messages delete --id 98765
 ```
 
 ### Output formats
