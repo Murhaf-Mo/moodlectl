@@ -53,7 +53,7 @@ def _client_and_course(course_id: int):  # type: ignore[return]
 
 @app.command("grades-dist")
 def grades_dist(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         item: Optional[str] = typer.Option(None, "--item", help="Grade item column name (default: Course total)"),
         bins: int = typer.Option(10, "--bins", help="Number of histogram bins"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart (e.g. dist.png)"),
@@ -65,8 +65,8 @@ def grades_dist(
     separates two distinct groups and the rubric may need revision.
 
     Examples:
-      moodlectl analytics grades-dist --course-id 123
-      moodlectl analytics grades-dist --course-id 123 --save dist.png
+      moodlectl analytics grades-dist --course 123
+      moodlectl analytics grades-dist --course 123 --save dist.png
     """
     _check_deps()
     client, cid = _client_and_course(course_id)
@@ -100,7 +100,7 @@ def grades_dist(
 
 @app.command("grades-boxplot")
 def grades_boxplot(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart"),
         fmt: str = typer.Option("png", "--fmt", help="File format: png or pdf"),
 ) -> None:
@@ -110,8 +110,8 @@ def grades_boxplot(
     adjust weights or offer re-submissions.
 
     Examples:
-      moodlectl analytics grades-boxplot --course-id 123
-      moodlectl analytics grades-boxplot --course-id 123 --save boxplot.pdf --fmt pdf
+      moodlectl analytics grades-boxplot --course 123
+      moodlectl analytics grades-boxplot --course 123 --save boxplot.pdf --fmt pdf
     """
     _check_deps()
     client, cid = _client_and_course(course_id)
@@ -137,7 +137,7 @@ def grades_boxplot(
 
 @app.command("letter-grades")
 def letter_grades(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         grade_max: Optional[float] = typer.Option(None, "--grade-max", help="Maximum possible grade (auto-detected from report if omitted)"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart"),
         fmt: str = typer.Option("png", "--fmt", help="File format: png or pdf"),
@@ -148,8 +148,8 @@ def letter_grades(
     specified — so a course graded out of 40 is bucketed correctly without any flags.
 
     Examples:
-      moodlectl analytics letter-grades --course-id 123
-      moodlectl analytics letter-grades --course-id 123 --grade-max 50
+      moodlectl analytics letter-grades --course 123
+      moodlectl analytics letter-grades --course 123 --grade-max 50
     """
     _check_deps()
     client, cid = _client_and_course(course_id)
@@ -192,7 +192,7 @@ def letter_grades(
 
 @app.command("submission-status")
 def submission_status(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         assignment_id: Optional[int] = typer.Option(None, "--assignment-id", help="Limit to one assignment (cmid)"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart"),
         fmt: str = typer.Option("png", "--fmt", help="File format: png or pdf"),
@@ -202,8 +202,8 @@ def submission_status(
     Use this to decide which assignment to grade first and who to remind.
 
     Examples:
-      moodlectl analytics submission-status --course-id 123
-      moodlectl analytics submission-status --course-id 123 --assignment-id 456
+      moodlectl analytics submission-status --course 123
+      moodlectl analytics submission-status --course 123 --assignment-id 456
     """
     _check_deps()
     client, cid = _client_and_course(course_id)
@@ -245,7 +245,7 @@ def submission_status(
 
 @app.command("grade-progression")
 def grade_progression(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart"),
         fmt: str = typer.Option("png", "--fmt", help="File format: png or pdf"),
 ) -> None:
@@ -255,8 +255,8 @@ def grade_progression(
     losing engagement — consider scheduling a review session.
 
     Examples:
-      moodlectl analytics grade-progression --course-id 123
-      moodlectl analytics grade-progression --course-id 123 --save progress.png
+      moodlectl analytics grade-progression --course 123
+      moodlectl analytics grade-progression --course 123 --save progress.png
     """
     _check_deps()
     client, cid = _client_and_course(course_id)
@@ -282,7 +282,7 @@ def grade_progression(
 
 @app.command("at-risk")
 def at_risk(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         threshold: float = typer.Option(60.0, "--threshold", help="Percentage threshold (0-100) below which a student is at-risk (applied against course max)"),
 ) -> None:
     """List students who need immediate attention.
@@ -300,8 +300,8 @@ def at_risk(
     This is the most actionable output in the analytics group.
 
     Examples:
-      moodlectl analytics at-risk --course-id 123
-      moodlectl analytics at-risk --course-id 123 --threshold 70
+      moodlectl analytics at-risk --course 123
+      moodlectl analytics at-risk --course 123 --threshold 70
     """
     client, cid = _client_and_course(course_id)
 
@@ -341,7 +341,7 @@ def at_risk(
 
 @app.command("summary")
 def summary(
-        course_id: int = typer.Option(..., "--course-id", "-c", help="Moodle course ID"),
+        course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
         save_dir: Optional[str] = typer.Option(None, "--save-dir", help="Directory to write all charts as PNG files"),
 ) -> None:
     """Full analytics report: all charts in one command.
@@ -350,8 +350,8 @@ def summary(
     in sequence. Pass --save-dir to write all charts as PNG files.
 
     Examples:
-      moodlectl analytics summary --course-id 123
-      moodlectl analytics summary --course-id 123 --save-dir ./reports/
+      moodlectl analytics summary --course 123
+      moodlectl analytics summary --course 123 --save-dir ./reports/
     """
     _check_deps()
     client, cid = _client_and_course(course_id)

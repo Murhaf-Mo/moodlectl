@@ -220,40 +220,40 @@ Charts render directly in your terminal by default. Pass `--save <file>` to writ
 
 ```bash
 # Grade distribution histogram — spot bimodal curves, decide whether to norm-reference
-moodlectl analytics grades-dist --course-id 568
-moodlectl analytics grades-dist --course-id 568 --save dist.png
-moodlectl analytics grades-dist --course-id 568 --save dist.pdf --fmt pdf
+moodlectl analytics grades-dist --course 568
+moodlectl analytics grades-dist --course 568 --save dist.png
+moodlectl analytics grades-dist --course 568 --save dist.pdf --fmt pdf
 
 # Filter to a specific grade item instead of Course Total
-moodlectl analytics grades-dist --course-id 568 --item "Midterm Exam"
+moodlectl analytics grades-dist --course 568 --item "Midterm Exam"
 
 # Box plot — compare grade spread across assignments; find the hardest one
-moodlectl analytics grades-boxplot --course-id 568
-moodlectl analytics grades-boxplot --course-id 568 --save boxplot.png
+moodlectl analytics grades-boxplot --course 568
+moodlectl analytics grades-boxplot --course 568 --save boxplot.png
 
 # Letter grade bar chart (A / B / C / D / F)
 # grade-max is auto-detected from the report — no flag needed for non-100 scales
-moodlectl analytics letter-grades --course-id 568
-moodlectl analytics letter-grades --course-id 568 --save letters.png
+moodlectl analytics letter-grades --course 568
+moodlectl analytics letter-grades --course 568 --save letters.png
 
 # Submission status — submitted / ungraded / missing per assignment
-moodlectl analytics submission-status --course-id 568
-moodlectl analytics submission-status --course-id 568 --assignment-id 18002  # single assignment
-moodlectl analytics submission-status --course-id 568 --save status.png
+moodlectl analytics submission-status --course 568
+moodlectl analytics submission-status --course 568 --assignment-id 18002  # single assignment
+moodlectl analytics submission-status --course 568 --save status.png
 
 # Grade progression — mean & median line chart across assignments in grade-report order
-moodlectl analytics grade-progression --course-id 568
-moodlectl analytics grade-progression --course-id 568 --save progress.png
+moodlectl analytics grade-progression --course 568
+moodlectl analytics grade-progression --course 568 --save progress.png
 
 # At-risk students — below threshold AND/OR have missing/ungraded work
 # --threshold is a percentage of the course max (default 60%)
 # action column: "remind" | "grade" | "both"
-moodlectl analytics at-risk --course-id 568
-moodlectl analytics at-risk --course-id 568 --threshold 70
+moodlectl analytics at-risk --course 568
+moodlectl analytics at-risk --course 568 --threshold 70
 
 # Full report — all charts in one command; optionally save all as PNGs
-moodlectl analytics summary --course-id 568
-moodlectl analytics summary --course-id 568 --save-dir ./reports/
+moodlectl analytics summary --course 568
+moodlectl analytics summary --course 568 --save-dir ./reports/
 ```
 
 `--save-dir` layout:
@@ -327,10 +327,10 @@ moodlectl grades stats --course 568
 
 ```bash
 # Full visual report saved to disk — share with department or keep for records
-moodlectl analytics summary --course-id 568 --save-dir ./reports/
+moodlectl analytics summary --course 568 --save-dir ./reports/
 
 # Or run individual charts as needed
-moodlectl analytics at-risk --course-id 568               # who needs attention right now
-moodlectl analytics letter-grades --course-id 568          # A/B/C/D/F breakdown
-moodlectl analytics grade-progression --course-id 568      # is the cohort improving?
+moodlectl analytics at-risk --course 568               # who needs attention right now
+moodlectl analytics letter-grades --course 568          # A/B/C/D/F breakdown
+moodlectl analytics grade-progression --course 568      # is the cohort improving?
 ```
