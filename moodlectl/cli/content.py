@@ -505,6 +505,8 @@ def push_content(
     course: Optional[int] = typer.Option(None, "--course", "-c", help="Course ID override (default: read from YAML course_id)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without applying them."),
     yes: bool = typer.Option(False, "--yes", "-y", help="Apply without confirmation prompt."),
+    debug: bool = typer.Option(False, "--debug", help="Print full Python traceback on error."),
+    continue_on_error: bool = typer.Option(False, "--continue-on-error", help="Keep going when a single change fails; print a summary at the end."),
 ) -> None:
     """Apply changes from a YAML file to a course.
 
@@ -594,9 +596,35 @@ def push_content(
                 desc = label[:_DESC_WIDTH].ljust(_DESC_WIDTH)
                 prog.update(task, completed=current, description=f"[cyan]{desc}[/cyan]")
 
-            content_yaml.push(client, changes, progress=_on_push_progress)
-    except RuntimeError as exc:
-        console.print(f"[red]Error during push:[/red] {exc}")
+            failures = content_yaml.push(
+                client, changes,
+                progress=_on_push_progress,
+                continue_on_error=continue_on_error,
+            )
+    except Exception as exc:
+        console.print("\n[red bold]Error during push[/red bold]")
+        for line in str(exc).splitlines():
+            console.print(f"  [red]{line}[/red]")
+        cause = exc.__cause__
+        if cause is not None and str(cause) != str(exc):
+            console.print("\n[yellow]Caused by:[/yellow]")
+            for line in str(cause).splitlines():
+                console.print(f"  [yellow]{line}[/yellow]")
+        if debug:
+            import traceback
+            console.print("\n[dim]--- Traceback ---[/dim]")
+            console.print(traceback.format_exc())
+        else:
+            console.print("\n[dim]Re-run with --debug for the full Python traceback.[/dim]")
         raise typer.Exit(1)
 
-    console.print(f"[green]Applied {len(changes)} change(s).[/green]")
+    applied = len(changes) - len(failures)
+    if failures:
+        console.print(f"\n[yellow]Applied {applied} of {len(changes)} change(s); {len(failures)} failed:[/yellow]\n")
+        for change, msg in failures:
+            console.print(f"[red]✗ {change.kind}[/red]  {change.label}")
+            for line in msg.splitlines():
+                console.print(f"    [dim]{line}[/dim]")
+            console.print()
+    else:
+        console.print(f"[green]Applied {len(changes)} change(s).[/green]")

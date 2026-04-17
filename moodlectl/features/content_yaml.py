@@ -490,52 +490,102 @@ def push(
     client: MoodleClientProtocol,
     changes: list[Change],
     progress: ProgressCb | None = None,
-) -> None:
-    """Apply a list of Change objects to Moodle."""
+    continue_on_error: bool = False,
+) -> list[tuple[Change, str]]:
+    """Apply a list of Change objects to Moodle.
+
+    Returns a list of (change, error_message) for changes that failed. An
+    empty list means everything succeeded.
+
+    continue_on_error=False (default): raises RuntimeError on the first failure
+      with:
+        · the 1-based index and total (e.g. "change 17/50")
+        · the change kind and full human label from diff()
+        · the attempted settings/value payload when applicable
+        · the original exception's message (chained via __cause__)
+    continue_on_error=True: collects failures, logs nothing itself, returns them
+      so the caller can report the list.
+    """
     total = len(changes)
+    failures: list[tuple[Change, str]] = []
     for idx, change in enumerate(changes, 1):
         if progress:
             progress(idx, total, change.label)
-        if change.kind == "RENAME_MODULE" and change.cmid is not None:
-            client.rename_module(change.cmid, str(change.value))
-        elif change.kind == "RENAME_SECTION" and change.section_id is not None:
-            client.rename_section(change.section_id, str(change.value))
-        elif change.kind == "HIDE_MODULE" and change.cmid is not None:
-            client.set_module_visible(change.cmid, False)
-        elif change.kind == "SHOW_MODULE" and change.cmid is not None:
-            client.set_module_visible(change.cmid, True)
-        elif change.kind == "HIDE_SECTION" and change.section_id is not None:
-            client.set_section_visible(change.section_id, False)
-        elif change.kind == "SHOW_SECTION" and change.section_id is not None:
-            client.set_section_visible(change.section_id, True)
-        elif change.kind == "UPDATE_MODULE" and change.cmid is not None and isinstance(change.value, dict):
-            from moodlectl.client.api import _settings_to_form
-            form_changes = _settings_to_form(change.modname, change.value)
-            client.update_module(change.cmid, form_changes)
-        elif change.kind == "UPDATE_COURSE" and change.course_id is not None and isinstance(change.value, dict):
-            from moodlectl.client.api import _course_settings_to_form
-            form_changes = _course_settings_to_form(change.value)
-            client.update_course(change.course_id, form_changes)
-        elif (
-            change.kind == "MOVE_SECTION"
-            and change.section_id is not None
-            and change.course_id is not None
-        ):
-            client.move_section(change.course_id, change.section_id, SectionId(change.target_cmid))
-        elif (
-            change.kind == "CREATE_MODULE"
-            and change.course_id is not None
-            and change.section_num is not None
-            and change.modname
-        ):
-            client.create_module(
-                change.course_id, change.section_num, change.modname,
-                change.new_name, change.new_settings or {},
-            )
-        elif (
-            change.kind == "MOVE_MODULE"
-            and change.cmid is not None
-            and change.section_id is not None
-            and change.course_id is not None
-        ):
-            client.move_module(change.course_id, change.cmid, change.target_cmid, change.section_id)
+        try:
+            _apply_change(client, change)
+        except Exception as exc:
+            detail_lines = [
+                f"change {idx}/{total} failed",
+                f"  kind:   {change.kind}",
+                f"  label:  {change.label}",
+            ]
+            if change.cmid is not None:
+                detail_lines.append(f"  cmid:   {change.cmid}")
+            if change.section_id is not None:
+                detail_lines.append(f"  section_id: {change.section_id}")
+            if change.modname:
+                detail_lines.append(f"  modname: {change.modname}")
+            if isinstance(change.value, dict):
+                keys = ", ".join(sorted(change.value.keys()))
+                detail_lines.append(f"  fields: {keys}")
+            elif change.value is not None:
+                detail_lines.append(f"  value:  {change.value!r}")
+            detail_lines.append(f"  error:  {exc}")
+            msg = "\n".join(detail_lines)
+            if continue_on_error:
+                failures.append((change, msg))
+                continue
+            raise RuntimeError(msg) from exc
+    return failures
+
+
+def _apply_change(client: MoodleClientProtocol, change: Change) -> None:
+    """Dispatch a single change to the appropriate client method."""
+    if change.kind == "RENAME_MODULE" and change.cmid is not None:
+        client.rename_module(change.cmid, str(change.value))
+    elif change.kind == "RENAME_SECTION" and change.section_id is not None:
+        client.rename_section(change.section_id, str(change.value))
+    elif change.kind == "HIDE_MODULE" and change.cmid is not None:
+        client.set_module_visible(change.cmid, False)
+    elif change.kind == "SHOW_MODULE" and change.cmid is not None:
+        client.set_module_visible(change.cmid, True)
+    elif change.kind == "HIDE_SECTION" and change.section_id is not None:
+        client.set_section_visible(change.section_id, False)
+    elif change.kind == "SHOW_SECTION" and change.section_id is not None:
+        client.set_section_visible(change.section_id, True)
+    elif change.kind == "UPDATE_MODULE" and change.cmid is not None and isinstance(change.value, dict):
+        from moodlectl.client.api import _settings_to_form
+        form_changes = _settings_to_form(change.modname, change.value)
+        client.update_module(change.cmid, form_changes)
+    elif change.kind == "UPDATE_COURSE" and change.course_id is not None and isinstance(change.value, dict):
+        from moodlectl.client.api import _course_settings_to_form
+        form_changes = _course_settings_to_form(change.value)
+        client.update_course(change.course_id, form_changes)
+    elif (
+        change.kind == "MOVE_SECTION"
+        and change.section_id is not None
+        and change.course_id is not None
+    ):
+        client.move_section(change.course_id, change.section_id, SectionId(change.target_cmid))
+    elif (
+        change.kind == "CREATE_MODULE"
+        and change.course_id is not None
+        and change.section_num is not None
+        and change.modname
+    ):
+        client.create_module(
+            change.course_id, change.section_num, change.modname,
+            change.new_name, change.new_settings or {},
+        )
+    elif (
+        change.kind == "MOVE_MODULE"
+        and change.cmid is not None
+        and change.section_id is not None
+        and change.course_id is not None
+    ):
+        client.move_module(change.course_id, change.cmid, change.target_cmid, change.section_id)
+    else:
+        raise RuntimeError(
+            f"unknown or incomplete change: kind={change.kind} "
+            f"cmid={change.cmid} section_id={change.section_id}"
+        )

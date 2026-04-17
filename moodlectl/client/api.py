@@ -1319,7 +1319,19 @@ class MoodleAPI(MoodleClientBase):
 
         resp = self._post_form(get_url, form_data, referer=get_url)
         if resp.status_code == 404:
-            raise RuntimeError(f"modedit.php POST returned 404 for new {modname} in course {course_id}")
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".html",
+                prefix=f"moodlectl_404_new_{modname}_",
+            )
+            tmp.write(resp.text.encode("utf-8", errors="replace"))
+            tmp.close()
+            raise RuntimeError(
+                f"modedit.php POST returned 404 for new {modname} in course {course_id}.\n"
+                f"  resp url: {resp.url}\n"
+                f"  body:     {tmp.name}\n"
+                f"Likely causes: session expired, or teacher lacks 'Manage activities'."
+            )
         if "modedit.php" in resp.url and resp.status_code == 200:
             import tempfile
             soup = BeautifulSoup(resp.text, "html.parser")
@@ -1384,7 +1396,25 @@ class MoodleAPI(MoodleClientBase):
                 form_data[key] = val
         resp = self._post_form(f"{self.base_url}/course/modedit.php", form_data, referer=get_url)
         if resp.status_code == 404:
-            raise RuntimeError(f"modedit.php POST returned 404 for cmid={cmid} — check session")
+            import tempfile
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".html",
+                prefix=f"moodlectl_404_cmid{cmid}_",
+            )
+            tmp.write(resp.text.encode("utf-8", errors="replace"))
+            tmp.close()
+            attempted = ", ".join(sorted(changes.keys())) or "(none)"
+            raise RuntimeError(
+                f"modedit.php POST returned 404 for cmid={cmid}.\n"
+                f"  URL:      POST {self.base_url}/course/modedit.php\n"
+                f"  fields:   {attempted}\n"
+                f"  resp url: {resp.url}\n"
+                f"  body:     {tmp.name}\n"
+                f"Likely causes: session expired (re-run 'moodlectl auth login'), "
+                f"the module was deleted, or this activity type is not editable "
+                f"via modedit.php (e.g. the default 'Announcements' news forum on "
+                f"some Moodle installs rejects modedit POSTs — edit it from the UI)."
+            )
         # Success: Moodle redirects to the course or module view page.
         # Failure: stays on modedit.php and shows validation errors in HTML.
         if "modedit.php" in resp.url and resp.status_code == 200:
