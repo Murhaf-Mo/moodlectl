@@ -51,6 +51,9 @@ pipx install --force "git+https://github.com/$REPO"
 echo "Installing browser support (for auth login)..."
 pipx inject --force moodlectl selenium webdriver-manager
 
+echo "Installing analytics support..."
+pipx inject --force moodlectl plotext matplotlib
+
 echo ""
 echo "moodlectl installed successfully!"
 echo ""
