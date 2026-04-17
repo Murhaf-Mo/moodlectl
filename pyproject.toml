@@ -6,7 +6,22 @@ build-backend = "hatchling.build"
 name = "moodlectl"
 version = "0.1.0"
 description = "Moodle LMS automation and AI tool for university instructors"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Murhaf-Mo"}]
 requires-python = ">=3.12"
+keywords = ["moodle", "lms", "cli", "automation", "university"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Intended Audience :: Education",
+]
+
+[project.urls]
+Homepage = "https://github.com/Murhaf-Mo/moodlectl"
+Repository = "https://github.com/Murhaf-Mo/moodlectl"
+Issues = "https://github.com/Murhaf-Mo/moodlectl/issues"
 
 dependencies = [
     "requests>=2.33",
@@ -22,6 +37,8 @@ dev = [
     "pytest>=8",
     "pytest-mock>=3.14",
     "responses>=0.25",
+    "pyinstaller>=6.0",
+    "build",
 ]
 export = [
     "openpyxl>=3.1",

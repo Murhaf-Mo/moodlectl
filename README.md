@@ -1,36 +1,67 @@
-# moodlectl
+ok# moodlectl
 
 Automate your Moodle LMS from the command line. Built for CCK University instructors.
 
+![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
+
 ---
 
-## Setup
+## Installation
 
-**1. Install**
+Paste this in any **PowerShell** window. No Python required — everything is bundled.
 
-```bash
-pip install -e .                          # core only
-pip install -e ".[analytics]"             # + terminal & PNG chart support
-pip install -e ".[export]"                # + Excel export
-pip install -e ".[analytics,export]"      # everything
+```powershell
+irm https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.ps1 | iex
 ```
 
-**2. Configure credentials**
+This downloads the latest release installer from GitHub and runs it silently.
+Opens a new terminal when done and you're ready to go.
 
-Copy `.env.example` to `.env` and fill in your values:
+> **Alternatively:** download `moodlectl-setup.exe` directly from
+> [GitHub Releases](https://github.com/Murhaf-Mo/moodlectl/releases/latest) and run it.
+
+---
+
+## Authentication
+
+### First login
+
+```powershell
+moodlectl auth login
+```
+
+Chrome opens automatically. Log in with your CCK Microsoft credentials — the window
+closes on its own once login is detected and your session is saved.
+
+### Check session status
+
+```powershell
+moodlectl auth check
+```
+
+```
+Session valid. 3 course(s) accessible.
+Session age: 12m 4s
+Expires in: 7h 47m (Moodle timeout: 8h 0m)
+```
+
+Shows how long you have before the session expires so you can re-login before
+starting a long operation.
+
+### Session expired?
+
+Just run `moodlectl auth login` again — it checks first and only opens Chrome
+if your session actually needs refreshing.
+
+### Manual fallback (no browser)
+
+Create a `.env` file in your working directory:
 
 ```
 MOODLE_BASE_URL=https://mylms.cck.edu.kw
-MOODLE_SESSION=
-MOODLE_SESSKEY=
+MOODLE_SESSION=<value>   # F12 → Application → Cookies → MoodleSession
+MOODLE_SESSKEY=<value>   # F12 → Network → any service.php request body
 ```
-
-To get your session values — log into Moodle in your browser, then:
-
-- `MOODLE_SESSION` → F12 → **Application** → **Cookies** → copy `MoodleSession` value
-- `MOODLE_SESSKEY` → F12 → **Network** → click any request to `service.php` → look in the request body for `sesskey`
-
-> Sessions expire when you close your browser. Paste fresh values into `.env` to reconnect.
 
 ---
 
@@ -51,7 +82,10 @@ moodlectl assignments ungraded      # everything waiting to be graded
 ### auth
 
 ```bash
-# Verify your session is still active before running long commands
+# Auto-login: opens Chrome, saves session — skips browser if session is still valid
+moodlectl auth login
+
+# Verify session and show time remaining before expiry
 moodlectl auth check
 ```
 
@@ -214,7 +248,7 @@ ID reference:
 
 ### analytics
 
-> Requires `pip install -e ".[analytics]"` (plotext + matplotlib).
+> Analytics are bundled in the installer. No extra install needed.
 
 Charts render directly in your terminal by default. Pass `--save <file>` to write a PNG or PDF instead.
 
@@ -334,3 +368,32 @@ moodlectl analytics at-risk --course 568               # who needs attention rig
 moodlectl analytics letter-grades --course 568          # A/B/C/D/F breakdown
 moodlectl analytics grade-progression --course 568      # is the cohort improving?
 ```
+
+---
+
+## For developers
+
+```bash
+git clone https://github.com/Murhaf-Mo/moodlectl
+cd moodlectl
+pip install -e ".[dev,analytics,browser]"
+
+# Copy credentials
+cp .env.example .env   # then fill in MOODLE_SESSION and MOODLE_SESSKEY
+
+pytest                 # run tests
+ruff check .           # lint
+```
+
+### Releasing a new version
+
+```bash
+# 1. Finish work on master, bump version in pyproject.toml
+# 2. Create and push a release branch — GitHub Actions does the rest
+git checkout -b release/v1.0.0
+git commit -am "Release v1.0.0"
+git push origin release/v1.0.0
+```
+
+GitHub Actions will run tests, build the Windows installer, and publish it
+to GitHub Releases automatically.
