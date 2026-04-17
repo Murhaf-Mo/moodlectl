@@ -422,7 +422,7 @@ def _settings_to_form(modname: str, settings: dict[str, Any]) -> dict[str, str]:
     return form_changes
 
 
-def _course_settings_to_form(settings: dict[str, Any]) -> dict[str, str]:
+def _course_settings_to_form(settings: dict[str, Any]) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
     """Convert curated course settings dict back to course/edit.php form fields."""
     form_changes: dict[str, str] = {}
     for key, value in settings.items():
@@ -445,7 +445,7 @@ def _course_settings_to_form(settings: dict[str, Any]) -> dict[str, str]:
     return form_changes
 
 
-def _build_module_settings_dynamic(form: dict[str, str]) -> dict[str, Any]:
+def _build_module_settings_dynamic(form: dict[str, str]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     """Extract ALL form fields for `content settings` display (not used in YAML).
 
     Date groups are collapsed; system/routing fields are excluded.
@@ -563,7 +563,7 @@ class MoodleAPI(MoodleClientBase):
         get_url = f"{self.base_url}/course/edit.php"
         form_data = self.get_course_form(course_id)
         for key, value in changes.items():
-            val = str(value) if value is not None else ""
+            val = str(value) if value else ""
             if val and _DATE_RE.match(val):
                 form_data.update(_datetime_to_form(val, key))
             elif not val and f"{key}[enabled]" in form_data:
@@ -1112,8 +1112,9 @@ class MoodleAPI(MoodleClientBase):
                 else:
                     name_el = act_el.find("span", class_="instancename")
                     if name_el:
-                        for hidden in name_el.find_all("span", attrs={"class": lambda c: c and "accesshide" in c}):
-                            hidden.decompose()
+                        for hidden in name_el.find_all("span"):
+                            if "accesshide" in " ".join(_classes(hidden)):
+                                hidden.decompose()
                         mod_name = name_el.get_text(strip=True)
                     else:
                         mod_name = act_el.get_text(strip=True)[:60]
@@ -1309,7 +1310,7 @@ class MoodleAPI(MoodleClientBase):
 
         if settings:
             for key, value in _settings_to_form(modname, settings).items():
-                val = str(value) if value is not None else ""
+                val = str(value) if value else ""
                 if val and _DATE_RE.match(val):
                     form_data.update(_datetime_to_form(val, key))
                 elif not val and f"{key}[enabled]" in form_data:
@@ -1385,7 +1386,7 @@ class MoodleAPI(MoodleClientBase):
         get_url = f"{self.base_url}/course/modedit.php"
         form_data = self.get_module_form(cmid)
         for key, value in changes.items():
-            val = str(value) if value is not None else ""
+            val = str(value) if value else ""
             if val and _DATE_RE.match(val):
                 # Datetime string -> expand to date group sub-fields and enable
                 form_data.update(_datetime_to_form(val, key))

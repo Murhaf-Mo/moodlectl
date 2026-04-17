@@ -237,7 +237,6 @@ def set_course_setting(
     """Set a single course setting by human-readable name or raw form field."""
     from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA
 
-    schema_modname = "__course__"
     if field in _COURSE_SETTINGS_SCHEMA:
         form_field, kind = _COURSE_SETTINGS_SCHEMA[field]
         if kind in ("datetime", "datetime_always"):

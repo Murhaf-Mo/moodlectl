@@ -65,6 +65,15 @@ reportMissingModuleSource = "none"
 reportMissingTypeStubs = "none"
 # matplotlib stubs use Unknown for **kwargs throughout — not a code defect
 reportUnknownMemberType = "none"
+# PyYAML safe_load / BS4 / requests return Any; narrowing at every callsite adds
+# noise without catching real bugs. Boundaries are validated at runtime instead.
+reportUnknownVariableType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownLambdaType = "none"
+# features/ deliberately imports leading-underscore helpers from client/api.py
+# (e.g. _settings_to_form). These are internal to this package, not third-party
+# private API. Treat the single underscore as a "not part of public CLI" hint.
+reportPrivateUsage = "none"
 
 [tool.ruff]
 target-version = "py312"

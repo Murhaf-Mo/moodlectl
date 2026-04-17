@@ -209,8 +209,8 @@ def login(
         return
 
     try:
-        import selenium  # noqa: F401  type: ignore[import]
-        import webdriver_manager  # noqa: F401  type: ignore[import]
+        import selenium  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        import webdriver_manager  # noqa: F401  # pyright: ignore[reportUnusedImport]
     except ImportError:
         console.print(
             "[red]Browser login requires extra packages:[/red]\n\n"

@@ -24,7 +24,11 @@ def send(
     """
     client = MoodleClient.from_config(Config.load())
     result = client.send_message(UserId(to), text)
-    msg_id = result[0].get("msgid") if isinstance(result, list) and result else None
+    msg_id: object = None
+    if isinstance(result, list) and result:
+        first = result[0]
+        if isinstance(first, dict):
+            msg_id = first.get("msgid")
     if msg_id:
         console.print(f"[green]Message sent to user {to}. Message ID: {msg_id}[/green]")
     else:

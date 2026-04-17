@@ -20,19 +20,28 @@ def get_sections(
 
     if not show_hidden:
         sections = [s for s in sections if s["visible"]]
-        sections = [
-            {**s, "modules": [m for m in s["modules"] if m["visible"]]}
-            for s in sections
-        ]
+        sections = [_with_modules(s, [m for m in s["modules"] if m["visible"]]) for s in sections]
 
     if modtype is not None:
         modtype_lower = modtype.lower()
         sections = [
-            {**s, "modules": [m for m in s["modules"] if m["modname"].lower() == modtype_lower]}
+            _with_modules(s, [m for m in s["modules"] if m["modname"].lower() == modtype_lower])
             for s in sections
         ]
 
     return sections
+
+
+def _with_modules(section: CourseSection, modules: list[CourseModule]) -> CourseSection:
+    """Return a shallow copy of `section` with `modules` replaced."""
+    return CourseSection(
+        id=section["id"],
+        number=section["number"],
+        name=section["name"],
+        summary=section["summary"],
+        visible=section["visible"],
+        modules=modules,
+    )
 
 
 def find_module(
