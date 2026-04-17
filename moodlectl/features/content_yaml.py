@@ -7,11 +7,14 @@ push  — execute a list of Change objects against the Moodle API
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import yaml
 
 from moodlectl.types import Cmid, CourseId, MoodleClientProtocol, SectionId
+
+# Progress callback type: (current, total, description) -> None
+ProgressCb = Callable[[int, int, str], None]
 
 
 # ---------------------------------------------------------------------------
@@ -28,26 +31,45 @@ _HEADER = """\
 """
 
 
-def pull(client: MoodleClientProtocol, course_id: CourseId) -> str:
-    """Return a YAML string representing the current course content state.
+def pull(
+    client: MoodleClientProtocol,
+    course_id: CourseId,
+    progress: ProgressCb | None = None,
+) -> str:
+    """Return a YAML string representing the current course content state."""
+    from moodlectl.client.api import _build_module_settings  # type: ignore[attr-defined]
 
-    Uses fetch_settings=True to include all per-type settings (description, dates, grade, etc.).
-    Also merges assignment due dates into the top-level due_date field.
-    """
-    sections = client.get_course_sections(course_id, fetch_settings=True)  # type: ignore[call-arg]
+    # First pass: structure only (fast — 1 HTTP request).
+    sections = client.get_course_sections(course_id)  # type: ignore[call-arg]
+
+    all_modules = [(s, m) for s in sections for m in s["modules"]]
+    total = len(all_modules)
 
     # Course-level settings
     from moodlectl.features.courses import get_course_settings
     raw_course_settings = get_course_settings(client, course_id)  # type: ignore[arg-type]
     course_settings = {k: v for k, v in raw_course_settings.items() if v not in ("", [], 0, 0.0, None)}
 
-    # Build a cmid→due_date map from the assignments index (one extra HTTP call)
+    # Due-date map (best-effort)
     due_by_cmid: dict[int, str] = {}
     try:
         for a in client.get_course_assignments(course_id):
             due_by_cmid[int(a["cmid"])] = a["due_text"]
     except Exception:
-        pass  # due dates are best-effort; scrape failures shouldn't block the pull
+        pass
+
+    # Second pass: fetch settings per module so we can report progress.
+    settings_by_cmid: dict[int, dict[str, Any]] = {}
+    for idx, (_, m) in enumerate(all_modules, 1):
+        cmid = int(m["cmid"])
+        modname = m["modname"]
+        if progress:
+            progress(idx, total, m["name"])
+        try:
+            form = client.get_module_form(m["cmid"])  # type: ignore[attr-defined]
+            settings_by_cmid[cmid] = _build_module_settings(form, modname)
+        except Exception:
+            pass
 
     data: dict[str, Any] = {
         "course_id": int(course_id),
@@ -67,19 +89,20 @@ def pull(client: MoodleClientProtocol, course_id: CourseId) -> str:
 
         mods = []
         for m in s["modules"]:
+            cmid = int(m["cmid"])
             mod_dict: dict[str, Any] = {
-                "cmid": int(m["cmid"]),
+                "cmid": cmid,
                 "type": m["modname"],
                 "name": m["name"],
                 "visible": m["visible"],
             }
             if m["description"]:
                 mod_dict["description"] = m["description"]
-            due = due_by_cmid.get(int(m["cmid"]), "")
+            due = due_by_cmid.get(cmid, "")
             if due:
                 mod_dict["due_date"] = due
-            if m.get("settings"):
-                mod_dict["settings"] = m["settings"]
+            if settings_by_cmid.get(cmid):
+                mod_dict["settings"] = settings_by_cmid[cmid]
             mods.append(mod_dict)
 
         sec_dict["modules"] = mods
@@ -164,7 +187,12 @@ def _compute_moves(desired: list[Cmid], current: list[Cmid]) -> list[tuple[Cmid,
     return moves
 
 
-def diff(client: MoodleClientProtocol, course_id: CourseId, yaml_text: str) -> tuple[list[Change], list[str]]:
+def diff(
+    client: MoodleClientProtocol,
+    course_id: CourseId,
+    yaml_text: str,
+    progress: ProgressCb | None = None,
+) -> tuple[list[Change], list[str]]:
     """Compare yaml_text to live Moodle state.
 
     Returns (changes, warnings).
@@ -187,6 +215,16 @@ def diff(client: MoodleClientProtocol, course_id: CourseId, yaml_text: str) -> t
         raise ValueError(
             f"YAML course_id={yaml_course_id} does not match --course {course_id}"
         )
+
+    # Pre-count modules with settings for accurate progress reporting.
+    _yaml_sections_preview = parsed.get("sections", [])
+    _total_settings_mods = sum(
+        1
+        for sec in _yaml_sections_preview
+        for mod in sec.get("modules", [])
+        if isinstance(mod.get("settings"), dict) and mod["settings"]
+    )
+    _settings_idx = 0
 
     changes: list[Change] = []
     warnings: list[str] = []
@@ -320,6 +358,9 @@ def diff(client: MoodleClientProtocol, course_id: CourseId, yaml_text: str) -> t
             # skip entirely when the YAML settings block is absent or empty.
             yaml_settings = yaml_mod.get("settings")
             if isinstance(yaml_settings, dict) and yaml_settings:
+                _settings_idx += 1
+                if progress:
+                    progress(_settings_idx, _total_settings_mods, live_mod["name"])
                 try:
                     from moodlectl.client.api import _build_module_settings as _bms
                     live_form = client.get_module_form(cmid)  # type: ignore[attr-defined]
@@ -418,9 +459,16 @@ def diff(client: MoodleClientProtocol, course_id: CourseId, yaml_text: str) -> t
     return changes, warnings
 
 
-def push(client: MoodleClientProtocol, changes: list[Change]) -> None:
+def push(
+    client: MoodleClientProtocol,
+    changes: list[Change],
+    progress: ProgressCb | None = None,
+) -> None:
     """Apply a list of Change objects to Moodle."""
-    for change in changes:
+    total = len(changes)
+    for idx, change in enumerate(changes, 1):
+        if progress:
+            progress(idx, total, change.label)
         if change.kind == "RENAME_MODULE" and change.cmid is not None:
             client.rename_module(change.cmid, str(change.value))
         elif change.kind == "RENAME_SECTION" and change.section_id is not None:

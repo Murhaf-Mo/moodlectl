@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Self
 
@@ -72,7 +73,20 @@ class MoodleClientBase:
                 "Re-login in your browser and update MOODLE_SESSION in .env"
             )
 
-        result = resp.json()
+        try:
+            result = resp.json()
+        except json.JSONDecodeError:
+            # Server returned HTML (likely a login redirect) instead of JSON.
+            if "/login" in resp.url:
+                raise RuntimeError(
+                    "Session expired — server redirected to login.\n"
+                    "Run moodlectl auth login to refresh."
+                )
+            raise RuntimeError(
+                "Unexpected non-JSON response from Moodle — "
+                "session may have expired or this Moodle version is unsupported.\n"
+                "Run moodlectl auth login to refresh."
+            )
         if result[0].get("error"):
             raise RuntimeError(result[0]["exception"]["message"])
 

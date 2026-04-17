@@ -6,7 +6,8 @@ from typing import Optional
 
 import typer
 from rich.console import Console
-from rich.table import Table
+from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
+from rich.table import Column, Table
 from rich.tree import Tree
 
 from moodlectl.client import MoodleClient
@@ -20,6 +21,22 @@ section_app = typer.Typer(help="Section-level visibility and rename commands.")
 app.add_typer(section_app, name="section")
 
 console = Console(legacy_windows=False)
+
+_DESC_WIDTH = 45  # fixed column width keeps the bar from jittering
+
+def _make_progress() -> Progress:
+    return Progress(
+        SpinnerColumn(),
+        TextColumn(
+            "[progress.description]{task.description}",
+            table_column=Column(width=_DESC_WIDTH, no_wrap=True),
+        ),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        transient=True,
+    )
 
 _COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`).")
 _CMID_OPT = typer.Option(..., "--cmid", help="Course-module ID (from `content list`).")
@@ -370,7 +387,14 @@ def pull_content(
     """
     client = MoodleClient.from_config(Config.load())
     try:
-        yaml_text = content_yaml.pull(client, CourseId(course))
+        with _make_progress() as prog:
+            task = prog.add_task("Fetching module settings…", total=None)
+
+            def _on_progress(current: int, total: int, name: str) -> None:
+                desc = name[:_DESC_WIDTH].ljust(_DESC_WIDTH)
+                prog.update(task, total=total, completed=current, description=f"[cyan]{desc}[/cyan]")
+
+            yaml_text = content_yaml.pull(client, CourseId(course), progress=_on_progress)
     except RuntimeError as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
@@ -425,7 +449,14 @@ def push_content(
 
     client = MoodleClient.from_config(Config.load())
     try:
-        changes, warnings = content_yaml.diff(client, course_id, yaml_text)
+        with _make_progress() as prog:
+            task = prog.add_task("Computing diff…", total=None)
+
+            def _on_diff_progress(current: int, total: int, name: str) -> None:
+                desc = name[:_DESC_WIDTH].ljust(_DESC_WIDTH)
+                prog.update(task, total=total, completed=current, description=f"[cyan]{desc}[/cyan]")
+
+            changes, warnings = content_yaml.diff(client, course_id, yaml_text, progress=_on_diff_progress)
     except (RuntimeError, ValueError) as exc:
         console.print(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
@@ -466,7 +497,14 @@ def push_content(
             raise typer.Exit()
 
     try:
-        content_yaml.push(client, changes)
+        with _make_progress() as prog:
+            task = prog.add_task("Applying changes…", total=len(changes))
+
+            def _on_push_progress(current: int, total: int, label: str) -> None:
+                desc = label[:_DESC_WIDTH].ljust(_DESC_WIDTH)
+                prog.update(task, completed=current, description=f"[cyan]{desc}[/cyan]")
+
+            content_yaml.push(client, changes, progress=_on_push_progress)
     except RuntimeError as exc:
         console.print(f"[red]Error during push:[/red] {exc}")
         raise typer.Exit(1)

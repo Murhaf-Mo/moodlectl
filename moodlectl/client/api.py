@@ -99,7 +99,14 @@ _DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$')
 
 
 def _parse_duration_mins(form: dict[str, str], prefix: str) -> int:
-    """Parse a Moodle compound duration field (prefix[number] + prefix[timeunit]) to total minutes."""
+    """Parse a Moodle compound duration field (prefix[number] + prefix[timeunit]) to total minutes.
+
+    When Moodle renders the field with optional=True it adds a prefix[enabled] checkbox.
+    If that key is present in the form but falsy (unchecked), the duration is disabled → 0.
+    """
+    enabled_key = f"{prefix}[enabled]"
+    if enabled_key in form and not form[enabled_key]:
+        return 0
     try:
         number   = int(form.get(f"{prefix}[number]",   "0"))
         timeunit = int(form.get(f"{prefix}[timeunit]", "60"))
@@ -109,9 +116,19 @@ def _parse_duration_mins(form: dict[str, str], prefix: str) -> int:
 
 
 def _duration_mins_to_form(mins: int, prefix: str) -> dict[str, str]:
-    """Convert total minutes back to Moodle compound duration form fields (stored as minutes)."""
+    """Convert total minutes back to Moodle compound duration form fields.
+
+    Sets prefix[enabled]=1 so Moodle activates the field when the value is non-zero.
+    """
+    if mins:
+        return {
+            f"{prefix}[enabled]":  "1",
+            f"{prefix}[number]":   str(int(mins)),
+            f"{prefix}[timeunit]": "60",
+        }
     return {
-        f"{prefix}[number]":   str(int(mins)),
+        f"{prefix}[enabled]":  "",
+        f"{prefix}[number]":   "0",
         f"{prefix}[timeunit]": "60",
     }
 
@@ -1263,7 +1280,24 @@ class MoodleAPI(MoodleClientBase):
         # Success: Moodle redirects to the course or module view page.
         # Failure: stays on modedit.php and shows validation errors in HTML.
         if "modedit.php" in resp.url and resp.status_code == 200:
+            import tempfile, os
             soup = BeautifulSoup(resp.text, "html.parser")
-            error_el = soup.find(class_="alert-danger") or soup.find(id="id_error_name")
-            msg = error_el.get_text(strip=True) if error_el else "Unknown validation error"
-            raise RuntimeError(f"Moodle rejected the form for cmid={cmid}: {msg}")
+            msg = ""
+            for candidate in [
+                *soup.find_all(id=re.compile(r"^id_error_")),
+                *soup.find_all(class_="formerror"),
+                *soup.find_all(class_="alert-danger"),
+                *soup.find_all(class_="error"),
+            ]:
+                text = candidate.get_text(separator=" ", strip=True)
+                if text:
+                    msg = text
+                    break
+            # Dump response HTML to a temp file so the caller can inspect what Moodle returned.
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html", prefix=f"moodlectl_err_cmid{cmid}_")
+            tmp.write(resp.text.encode("utf-8", errors="replace"))
+            tmp.close()
+            raise RuntimeError(
+                f"Moodle rejected the form for cmid={cmid}: {msg or 'unknown error'}\n"
+                f"Full response saved to: {tmp.name}"
+            )
