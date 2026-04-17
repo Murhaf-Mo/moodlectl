@@ -8,17 +8,24 @@ Automate your Moodle LMS from the command line. Built for CCK University instruc
 
 ## Installation
 
-Paste this in any **PowerShell** window. No Python required — everything is bundled.
+### Windows
+
+Paste in any **PowerShell** window — no Python required:
 
 ```powershell
 irm https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.ps1 | iex
 ```
 
-This downloads the latest release installer from GitHub and runs it silently.
-Opens a new terminal when done and you're ready to go.
+### macOS
 
-> **Alternatively:** download `moodlectl-setup.exe` directly from
-> [GitHub Releases](https://github.com/Murhaf-Mo/moodlectl/releases/latest) and run it.
+Paste in **Terminal** — installs via Homebrew + pipx:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.sh | bash
+```
+
+> Both scripts download and install everything automatically.
+> Open a **new** terminal after install so PATH is refreshed.
 
 ---
 

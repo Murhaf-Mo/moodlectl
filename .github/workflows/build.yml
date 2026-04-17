@@ -34,21 +34,26 @@ jobs:
       - name: Tests
         run: pytest
 
-  # ── Build Windows installer ─────────────────────────────────────────────────
-  build:
+  # ── Extract version (shared by both build jobs) ────────────────────────────
+  version:
     needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - name: Extract version from branch name
+        id: ver
+        run: |
+          VERSION="${GITHUB_REF_NAME#release/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  # ── Build Windows installer ─────────────────────────────────────────────────
+  build-windows:
+    needs: version
     runs-on: windows-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Extract version from branch name
-        id: ver
-        shell: pwsh
-        run: |
-          $branch  = "${{ github.ref_name }}"          # release/v1.0.0
-          $version = $branch -replace '^release/v', '' # 1.0.0
-          echo "version=$version" >> $env:GITHUB_OUTPUT
 
       - uses: actions/setup-python@v5
         with:
@@ -64,29 +69,87 @@ jobs:
         shell: pwsh
         run: |
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
-            /DAppVersion="${{ steps.ver.outputs.version }}" `
+            /DAppVersion="${{ needs.version.outputs.version }}" `
             installer\moodlectl.iss
 
-      - name: Create GitHub Release and attach installer
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: installer/Output/moodlectl-setup.exe
+
+  # ── Build macOS binary ──────────────────────────────────────────────────────
+  build-macos:
+    needs: version
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install all dependencies + PyInstaller
+        run: pip install -e ".[analytics,browser]" pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller moodlectl.spec
+
+      - name: Package as tar.gz
+        run: |
+          cd dist
+          tar -czf moodlectl-macos.tar.gz moodlectl/
+
+      - name: Upload macOS binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binary
+          path: dist/moodlectl-macos.tar.gz
+
+  # ── Publish GitHub Release with both installers ────────────────────────────
+  release:
+    needs: [version, build-windows, build-macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: ./artifacts
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-binary
+          path: ./artifacts
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          name: moodlectl v${{ steps.ver.outputs.version }}
+          tag_name: v${{ needs.version.outputs.version }}
+          name: moodlectl v${{ needs.version.outputs.version }}
           generate_release_notes: true
           body: |
             ## Install
 
-            **One-liner (paste in PowerShell):**
+            **Windows** — paste in PowerShell:
             ```powershell
             irm https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.ps1 | iex
             ```
 
-            Or download `moodlectl-setup.exe` below and run it directly.
+            **macOS / Linux** — paste in Terminal:
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.sh | bash
+            ```
+
+            Or download the files below directly.
 
             After installing, open a **new** terminal and run:
             ```
             moodlectl auth login
             ```
-          files: installer/Output/moodlectl-setup.exe
+          files: |
+            artifacts/moodlectl-setup.exe
+            artifacts/moodlectl-macos.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
