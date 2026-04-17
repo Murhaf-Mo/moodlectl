@@ -11,7 +11,7 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
-from moodlectl.cli import analytics, assignments, auth, content, courses, grades, grading, messages, reports
+from moodlectl.cli import analytics, assignments, auth, content, courses, grades, grading, messages
 
 app = typer.Typer(
     name="moodlectl",
@@ -31,7 +31,6 @@ app.add_typer(grades.app, name="grades")
 app.add_typer(assignments.app, name="assignments")
 app.add_typer(grading.app, name="grading")
 app.add_typer(messages.app, name="messages")
-app.add_typer(reports.app, name="reports")
 
 
 @app.command("summary")
