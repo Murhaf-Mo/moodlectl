@@ -117,14 +117,17 @@ def pull(
 
 @dataclass
 class Change:
-    kind: str          # RENAME_MODULE|RENAME_SECTION|HIDE_MODULE|SHOW_MODULE|HIDE_SECTION|SHOW_SECTION|MOVE_MODULE|MOVE_SECTION|UPDATE_MODULE|UPDATE_COURSE
+    kind: str          # RENAME_MODULE|RENAME_SECTION|HIDE_MODULE|SHOW_MODULE|HIDE_SECTION|SHOW_SECTION|MOVE_MODULE|MOVE_SECTION|UPDATE_MODULE|UPDATE_COURSE|CREATE_MODULE
     label: str         # human-readable description for the summary table
     cmid: Cmid | None = None
     section_id: SectionId | None = None
     value: str | bool | dict[str, Any] | None = None
     target_cmid: int = 0        # MOVE_MODULE only: 0=end, >0=place before this cmid
-    course_id: CourseId | None = None  # MOVE_MODULE only
-    modname: str = ""           # UPDATE_MODULE only: module type (assign/quiz/…)
+    course_id: CourseId | None = None  # MOVE_MODULE|CREATE_MODULE
+    modname: str = ""           # UPDATE_MODULE|CREATE_MODULE: module type (assign/quiz/…)
+    section_num: int | None = None     # CREATE_MODULE only: 0-indexed section number
+    new_name: str = ""                 # CREATE_MODULE only
+    new_settings: dict[str, Any] | None = None  # CREATE_MODULE only
 
 
 def _compute_section_moves(desired: list[SectionId], current: list[SectionId]) -> list[tuple[SectionId, SectionId]]:
@@ -267,7 +270,10 @@ def diff(
     for yaml_sec in yaml_sections_raw:
         sec_id = SectionId(int(yaml_sec["id"]))
         for yaml_mod in yaml_sec.get("modules", []):
-            cmid = Cmid(int(yaml_mod["cmid"]))
+            raw_cmid = yaml_mod.get("cmid")
+            if raw_cmid in (None, "", "new"):
+                continue  # new module — no cmid yet
+            cmid = Cmid(int(raw_cmid))
             all_yaml_cmids.add(cmid)
             yaml_cmid_to_section[cmid] = sec_id
 
@@ -329,7 +335,27 @@ def diff(
         # Module name / visibility — runs for ALL yaml modules in this section that exist in live,
         # including those currently in a different section (cross-section move targets).
         for yaml_mod in yaml_sec.get("modules", []):
-            cmid = Cmid(int(yaml_mod["cmid"]))
+            raw_cmid = yaml_mod.get("cmid")
+            if raw_cmid in (None, "", "new"):
+                # New module — emit CREATE_MODULE.
+                new_type = str(yaml_mod.get("type", "")).strip()
+                new_name = str(yaml_mod.get("name", "")).strip()
+                new_settings = yaml_mod.get("settings") or {}
+                if not new_type:
+                    warnings.append(f"section {sec_id}: skipping module with no 'type' field")
+                    continue
+                sec_num_for_create = live_sec["number"]
+                changes.append(Change(
+                    kind="CREATE_MODULE",
+                    label=f"section {sec_id}: create {new_type} {new_name!r}",
+                    course_id=course_id,
+                    section_num=sec_num_for_create,
+                    modname=new_type,
+                    new_name=new_name,
+                    new_settings=dict(new_settings) if isinstance(new_settings, dict) else {},
+                ))
+                continue
+            cmid = Cmid(int(raw_cmid))
             if cmid not in all_live_cmids:
                 continue  # already warned globally
 
@@ -386,7 +412,8 @@ def diff(
         yaml_order = [
             Cmid(int(m["cmid"]))
             for m in yaml_sec.get("modules", [])
-            if Cmid(int(m["cmid"])) in all_live_cmids
+            if m.get("cmid") not in (None, "", "new")
+            and Cmid(int(m["cmid"])) in all_live_cmids
         ]
         if not yaml_order:
             continue
@@ -495,6 +522,16 @@ def push(
             and change.course_id is not None
         ):
             client.move_section(change.course_id, change.section_id, SectionId(change.target_cmid))
+        elif (
+            change.kind == "CREATE_MODULE"
+            and change.course_id is not None
+            and change.section_num is not None
+            and change.modname
+        ):
+            client.create_module(
+                change.course_id, change.section_num, change.modname,
+                change.new_name, change.new_settings or {},
+            )
         elif (
             change.kind == "MOVE_MODULE"
             and change.cmid is not None

@@ -292,7 +292,7 @@ _SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
     "page": {
         **_COMMON_SCHEMA,
         "description":   ("introeditor[text]",        "str"),
-        "content":       ("page_content_editor[text]", "str"),
+        "content":       ("page[text]",               "str"),
         "display_mode":  ("display",                  "int"),
     },
     "label": {
@@ -1220,18 +1220,25 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Module form (modedit.php) ─────────────────────────────────────────────
 
-    def get_module_form(self, cmid: Cmid) -> dict[str, str]:
-        """Scrape the modedit.php edit form for a module and return all field values.
+    def _scrape_modedit_form(self, params: dict[str, str | int]) -> dict[str, str]:
+        """Scrape /course/modedit.php with the given query params and return form fields.
 
-        Always fetches fresh — the introeditor draft itemid expires and must not be cached.
-        The returned dict contains every form field (hidden + visible), ready to POST back.
+        Used for both the edit form (?update=<cmid>) and the add form
+        (?add=<modname>&course=<id>&section=<n>).
         """
         get_url = f"{self.base_url}/course/modedit.php"
-        resp = self._session.get(get_url, params={"update": int(cmid), "return": 0})
+        resp = self._session.get(get_url, params=params)
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired while loading modedit form.\n{_SESSION_EXPIRED}")
         soup = BeautifulSoup(resp.text, "html.parser")
 
-        # The real form has 100+ fields; a small wrapper form has ~5.
-        form = max(soup.find_all("form"), key=lambda f: len(f.find_all(["input", "select", "textarea"])))
+        forms = soup.find_all("form")
+        if not forms:
+            raise RuntimeError(
+                f"modedit.php returned no form for params={params}. "
+                f"Module type may be unavailable in this course."
+            )
+        form = max(forms, key=lambda f: len(f.find_all(["input", "select", "textarea"])))
 
         data: dict[str, str] = {}
         for el in form.find_all(["input", "select", "textarea"]):
@@ -1241,18 +1248,9 @@ class MoodleAPI(MoodleClientBase):
             tag = el.name
             input_type = _attr(el, "type", "text").lower()
             if input_type == "submit":
-                # Drop all submit buttons; we re-add the one we want below.
-                # Extra submit buttons (e.g. a format-specific update button) cause
-                # Moodle to silently re-render the form instead of saving.
                 continue
-
             if tag == "select":
                 if el.get("multiple") is not None:
-                    # Multi-select (e.g. tags[]): store each selected option as indexed key.
-                    # For empty selections, do NOT post `base[] = ""` — PHP parses it
-                    # as `[""]` and Moodle's get_in_or_equal() fails. The hidden
-                    # sentinel input (e.g. `tags = _qf__force_multiselect_submission`)
-                    # already tells Moodle an empty selection was submitted.
                     selected_opts = el.find_all("option", selected=True)
                     base = name.rstrip("[]")
                     if selected_opts:
@@ -1264,7 +1262,6 @@ class MoodleAPI(MoodleClientBase):
             elif tag == "textarea":
                 data[name] = el.get_text()
             elif input_type == "checkbox":
-                # Presence of checked attr (even as "") means checked; None means unchecked.
                 if el.get("checked") is not None:
                     data[name] = _attr(el, "value", "1")
             elif input_type == "radio":
@@ -1273,9 +1270,99 @@ class MoodleAPI(MoodleClientBase):
             else:
                 data[name] = _attr(el, "value")
 
-        # Always trigger save-and-return so Moodle redirects back to the course page on success.
         data["submitbutton2"] = "Save and return to course"
         return data
+
+    def get_module_form(self, cmid: Cmid) -> dict[str, str]:
+        """Scrape the modedit.php edit form for a module and return all field values.
+
+        Always fetches fresh — the introeditor draft itemid expires and must not be cached.
+        The returned dict contains every form field (hidden + visible), ready to POST back.
+        """
+        return self._scrape_modedit_form({"update": int(cmid), "return": 0})
+
+    def create_module(
+        self,
+        course_id: CourseId,
+        section_num: int,
+        modname: str,
+        name: str,
+        settings: dict[str, Any] | None = None,
+    ) -> Cmid:
+        """Create a new course module.
+
+        section_num — 0-indexed section number shown in `content list`.
+        modname     — Moodle module type (label, page, url, forum, assign, quiz, resource, ...).
+        name        — human-readable module name (ignored by labels, which use the intro).
+        settings    — optional dict of curated settings (see _SETTINGS_SCHEMA).
+
+        Returns the cmid of the newly created module.
+        """
+        get_url = f"{self.base_url}/course/modedit.php"
+        form_data = self._scrape_modedit_form({
+            "add": modname, "type": "", "course": int(course_id),
+            "section": section_num, "return": 0, "sr": 0,
+        })
+
+        if name and "name" in form_data:
+            form_data["name"] = name
+
+        if settings:
+            for key, value in _settings_to_form(modname, settings).items():
+                val = str(value) if value is not None else ""
+                if val and _DATE_RE.match(val):
+                    form_data.update(_datetime_to_form(val, key))
+                elif not val and f"{key}[enabled]" in form_data:
+                    form_data[f"{key}[enabled]"] = ""
+                else:
+                    form_data[key] = val
+
+        resp = self._post_form(get_url, form_data, referer=get_url)
+        if resp.status_code == 404:
+            raise RuntimeError(f"modedit.php POST returned 404 for new {modname} in course {course_id}")
+        if "modedit.php" in resp.url and resp.status_code == 200:
+            import tempfile
+            soup = BeautifulSoup(resp.text, "html.parser")
+            msg = ""
+            for candidate in [
+                *soup.find_all(id=re.compile(r"^id_error_")),
+                *soup.find_all(class_="formerror"),
+                *soup.find_all(class_="alert-danger"),
+                *soup.find_all(class_="error"),
+            ]:
+                text = candidate.get_text(separator=" ", strip=True)
+                if text:
+                    msg = text
+                    break
+            tmp = tempfile.NamedTemporaryFile(
+                delete=False, suffix=".html",
+                prefix=f"moodlectl_err_new_{modname}_",
+            )
+            tmp.write(resp.text.encode("utf-8", errors="replace"))
+            tmp.close()
+            raise RuntimeError(
+                f"Moodle rejected new {modname} module: {msg or 'unknown error'}\n"
+                f"Full response saved to: {tmp.name}"
+            )
+
+        # Locate the new cmid — Moodle typically redirects to course view.
+        # Strategy: re-scrape sections, find modules in target section with matching
+        # name + modname, pick the one not previously present (highest cmid wins
+        # if multiple with same name).
+        sections = self.get_course_sections(course_id)
+        target = next((s for s in sections if s["number"] == section_num), None)
+        if target is None:
+            raise RuntimeError(f"Could not find section {section_num} after create")
+        candidates = [
+            m for m in target["modules"]
+            if m["modname"] == modname and (not name or m["name"] == name or modname == "label")
+        ]
+        if not candidates:
+            raise RuntimeError(
+                f"Created module {modname} not found in section {section_num} after POST. "
+                f"Response URL: {resp.url}"
+            )
+        return max(candidates, key=lambda m: int(m["cmid"]))["cmid"]
 
     def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None:
         """Apply field changes to a module via the modedit.php form.

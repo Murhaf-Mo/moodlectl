@@ -349,6 +349,15 @@ class MoodleClientProtocol(Protocol):
 
     def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None: ...
 
+    def create_module(
+        self,
+        course_id: CourseId,
+        section_num: int,
+        modname: str,
+        name: str,
+        settings: dict[str, Any] | None = None,
+    ) -> Cmid: ...
+
     def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
 
     def update_course(self, course_id: CourseId, changes: dict[str, str]) -> None: ...

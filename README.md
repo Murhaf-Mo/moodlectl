@@ -196,7 +196,14 @@ moodlectl content settings --course 51 --cmid 960        # all editable fields
 moodlectl content set      --course 51 --cmid 960 --field due_date   --value "2026-05-01 23:59"
 moodlectl content set      --course 51 --cmid 960 --field max_grade  --value 20
 moodlectl content set      --course 51 --cmid 960 --field description --value "<p>Updated.</p>"
+
+moodlectl content create --course 83 --section 1 --type label --set content='<p>Week 1</p>'
+moodlectl content create --course 83 --section 2 --type url --name "Syllabus" --set external_url=https://example.com
+moodlectl content create --course 83 --section 3 --type assign --name "Homework 1" --set due_date="2026-06-01 23:59" --set grading_due="2026-06-08 23:59" --set max_grade=10
+moodlectl content create --course 83 --from-yaml new_modules.yaml   # bulk create
 ```
+
+`--set key=value` is repeatable and accepts any field from `content settings`. `--name` is required for every type except `label`. New modules are appended to the target section — use `content push` afterwards to reorder.
 
 **Editable fields by type:**
 
@@ -219,6 +226,17 @@ moodlectl content push course.yaml --yes         # apply without prompt
 ```
 
 Each module gets a `settings:` block with every editable field for its type. Only changed values are pushed. Reorder entries in the YAML to reorder modules/sections. Modules removed from the YAML are flagged but never auto-deleted.
+
+**Add modules via YAML** — drop an entry into any section with no `cmid` (push will create it):
+
+```yaml
+- type: url           # required
+  name: New link      # required except for label
+  settings:
+    external_url: https://example.com
+```
+
+Works both in `content push` (alongside edits/reorders) and standalone via `content create --from-yaml`. Accepts either a single mapping or a list; top-level `section: <n>` is required when the file is consumed by `content create`, inferred from position when consumed by `content push`.
 
 ### messages
 

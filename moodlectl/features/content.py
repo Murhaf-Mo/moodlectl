@@ -126,6 +126,43 @@ def get_module_settings(
     return client.get_module_form(cmid)
 
 
+_VALID_MODNAMES = {
+    "assign", "quiz", "forum", "resource", "url", "page",
+    "label", "book", "chat", "choice", "feedback", "folder",
+    "glossary", "h5pactivity", "imscp", "lesson", "lti",
+    "scorm", "survey", "wiki", "workshop", "data",
+}
+
+
+def create_module(
+    client: MoodleClientProtocol,
+    course_id: CourseId,
+    section_num: int,
+    modname: str,
+    name: str,
+    settings: dict[str, Any] | None = None,
+) -> Cmid:
+    """Create a new module and return its cmid.
+
+    modname is the Moodle activity plugin name (label, page, url, assign, quiz, ...).
+    name is required for everything except labels (where the content body is the display).
+    settings is the curated settings dict (same keys accepted by `content set`).
+    """
+    modname = modname.strip().lower()
+    if modname not in _VALID_MODNAMES:
+        raise ValueError(
+            f"Unknown module type {modname!r}. "
+            f"Supported: {', '.join(sorted(_VALID_MODNAMES))}"
+        )
+    name = (name or "").strip()
+    if not name and modname != "label":
+        raise ValueError(f"--name is required for {modname} modules")
+    sections = client.get_course_sections(course_id)
+    if not any(s["number"] == section_num for s in sections):
+        raise ValueError(f"Section {section_num} not found in course {course_id}")
+    return client.create_module(course_id, section_num, modname, name, settings or {})
+
+
 def set_module_setting(
     client: MoodleClientProtocol,
     course_id: CourseId,

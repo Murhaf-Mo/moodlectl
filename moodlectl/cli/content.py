@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import typer
 from rich.console import Console
@@ -368,6 +368,95 @@ def set_module_setting(
 
 
 # ---------------------------------------------------------------------------
+# content create
+# ---------------------------------------------------------------------------
+
+@app.command("create")
+def create_module(
+    course: int = _COURSE_OPT,
+    section: Optional[int] = typer.Option(None, "--section", "-s", help="Section number (0-indexed). Required unless --from-yaml is used."),
+    type_: Optional[str] = typer.Option(None, "--type", "-t", help="Module type: label, page, url, assign, quiz, forum, resource, …"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Module name (required except for label)."),
+    set_: Optional[list[str]] = typer.Option(None, "--set", help="Settings override as key=value (repeatable): --set due_date='2026-05-01 23:59' --set max_grade=20"),
+    from_yaml: Optional[str] = typer.Option(None, "--from-yaml", "-f", help="YAML file: single module mapping, or a list of mappings, each with: section, type, name, settings."),
+) -> None:
+    """Create one or more new modules in a course.
+
+    Flag form:
+      moodlectl content create --course 51 --section 1 --type label --set content='<p>Hello.</p>'
+      moodlectl content create --course 51 --section 2 --type url --name "Syllabus" --set external_url=https://example.com
+      moodlectl content create --course 51 --section 3 --type assign --name "Homework 1" --set due_date='2026-06-01 23:59' --set max_grade=10
+
+    YAML form (one or many):
+      moodlectl content create --course 51 --from-yaml new_modules.yaml
+
+    YAML mapping fields: section (int), type (str), name (str), settings (dict).
+    """
+    import yaml as _yaml
+
+    modules_to_create: list[dict[str, Any]] = []  # type: ignore[name-defined]
+
+    if from_yaml:
+        path = Path(from_yaml)
+        if not path.exists():
+            console.print(f"[red]File not found: {from_yaml}[/red]")
+            raise typer.Exit(1)
+        parsed = _yaml.safe_load(path.read_text(encoding="utf-8"))
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        if not isinstance(parsed, list):
+            console.print("[red]YAML must be a mapping or list of mappings.[/red]")
+            raise typer.Exit(1)
+        modules_to_create = parsed
+    else:
+        if section is None or type_ is None:
+            console.print("[red]--section and --type are required when not using --from-yaml.[/red]")
+            raise typer.Exit(1)
+        settings_dict: dict[str, str] = {}
+        for item in (set_ or []):
+            if "=" not in item:
+                console.print(f"[red]Invalid --set {item!r}: expected key=value.[/red]")
+                raise typer.Exit(1)
+            k, v = item.split("=", 1)
+            settings_dict[k.strip()] = v
+        modules_to_create = [{
+            "section": section,
+            "type": type_,
+            "name": name or "",
+            "settings": settings_dict,
+        }]
+
+    client = MoodleClient.from_config(Config.load())
+    created: list[tuple[int, str, str, int]] = []
+
+    for spec in modules_to_create:
+        sec_num = spec.get("section")
+        modname = spec.get("type")
+        mod_name = spec.get("name", "")
+        mod_settings = spec.get("settings") or {}
+        if sec_num is None or modname is None:
+            console.print(f"[red]Skipped entry — missing 'section' or 'type': {spec}[/red]")
+            continue
+        try:
+            new_cmid = content_feature.create_module(
+                client, CourseId(course), int(sec_num), str(modname),
+                str(mod_name), dict(mod_settings),
+            )
+        except (RuntimeError, ValueError) as exc:
+            console.print(f"[red]Error creating {modname} {mod_name!r}:[/red] {exc}")
+            raise typer.Exit(1)
+        created.append((int(sec_num), str(modname), str(mod_name), int(new_cmid)))
+        console.print(
+            f"[green]Created[/green] {modname} "
+            f"[bold]{mod_name or '(unnamed)'}[/bold] "
+            f"in section {sec_num} — cmid=[yellow]{new_cmid}[/yellow]"
+        )
+
+    if len(created) > 1:
+        console.print(f"\n[green]Created {len(created)} module(s).[/green]")
+
+
+# ---------------------------------------------------------------------------
 # content pull
 # ---------------------------------------------------------------------------
 
@@ -482,6 +571,7 @@ def push_content(
             "MOVE_MODULE": "cyan", "MOVE_SECTION": "cyan",
             "UPDATE_MODULE": "magenta",
             "UPDATE_COURSE": "blue",
+            "CREATE_MODULE": "green",
         }.get(ch.kind, "white")
         tbl.add_row(f"[{op_color}]{ch.kind}[/{op_color}]", ch.label)
     console.print(tbl)
