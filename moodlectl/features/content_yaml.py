@@ -16,7 +16,6 @@ from moodlectl.types import Cmid, CourseId, MoodleClientProtocol, SectionId
 # Progress callback type: (current, total, description) -> None
 ProgressCb = Callable[[int, int, str], None]
 
-
 # ---------------------------------------------------------------------------
 # Serialisation helpers
 # ---------------------------------------------------------------------------
@@ -32,9 +31,9 @@ _HEADER = """\
 
 
 def pull(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    progress: ProgressCb | None = None,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        progress: ProgressCb | None = None,
 ) -> str:
     """Return a YAML string representing the current course content state."""
     from moodlectl.client.api import _build_module_settings  # type: ignore[attr-defined]
@@ -117,16 +116,16 @@ def pull(
 
 @dataclass
 class Change:
-    kind: str          # RENAME_MODULE|RENAME_SECTION|HIDE_MODULE|SHOW_MODULE|HIDE_SECTION|SHOW_SECTION|MOVE_MODULE|MOVE_SECTION|UPDATE_MODULE|UPDATE_COURSE|CREATE_MODULE
-    label: str         # human-readable description for the summary table
+    kind: str  # RENAME_MODULE|RENAME_SECTION|HIDE_MODULE|SHOW_MODULE|HIDE_SECTION|SHOW_SECTION|MOVE_MODULE|MOVE_SECTION|UPDATE_MODULE|UPDATE_COURSE|CREATE_MODULE
+    label: str  # human-readable description for the summary table
     cmid: Cmid | None = None
     section_id: SectionId | None = None
     value: str | bool | dict[str, Any] | None = None
-    target_cmid: int = 0        # MOVE_MODULE only: 0=end, >0=place before this cmid
+    target_cmid: int = 0  # MOVE_MODULE only: 0=end, >0=place before this cmid
     course_id: CourseId | None = None  # MOVE_MODULE|CREATE_MODULE
-    modname: str = ""           # UPDATE_MODULE|CREATE_MODULE: module type (assign/quiz/…)
-    section_num: int | None = None     # CREATE_MODULE only: 0-indexed section number
-    new_name: str = ""                 # CREATE_MODULE only
+    modname: str = ""  # UPDATE_MODULE|CREATE_MODULE: module type (assign/quiz/…)
+    section_num: int | None = None  # CREATE_MODULE only: 0-indexed section number
+    new_name: str = ""  # CREATE_MODULE only
     new_settings: dict[str, Any] | None = None  # CREATE_MODULE only
 
 
@@ -191,10 +190,10 @@ def _compute_moves(desired: list[Cmid], current: list[Cmid]) -> list[tuple[Cmid,
 
 
 def diff(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    yaml_text: str,
-    progress: ProgressCb | None = None,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        yaml_text: str,
+        progress: ProgressCb | None = None,
 ) -> tuple[list[Change], list[str]]:
     """Compare yaml_text to live Moodle state.
 
@@ -413,7 +412,7 @@ def diff(
             Cmid(int(m["cmid"]))
             for m in yaml_sec.get("modules", [])
             if m.get("cmid") not in (None, "", "new")
-            and Cmid(int(m["cmid"])) in all_live_cmids
+               and Cmid(int(m["cmid"])) in all_live_cmids
         ]
         if not yaml_order:
             continue
@@ -451,13 +450,13 @@ def diff(
             if move_cmid in incoming_set:
                 from_sec = live_cmid_to_section[move_cmid]
                 label = (
-                    f"module cmid={move_cmid}: move from section {from_sec} ->section {sec_id}"
-                    + ("" if target == 0 else f" (before cmid={target})")
+                        f"module cmid={move_cmid}: move from section {from_sec} ->section {sec_id}"
+                        + ("" if target == 0 else f" (before cmid={target})")
                 )
             else:
                 label = (
-                    f"module cmid={move_cmid}: reorder within section {sec_id}"
-                    + (" ->end" if target == 0 else f" ->before cmid={target}")
+                        f"module cmid={move_cmid}: reorder within section {sec_id}"
+                        + (" ->end" if target == 0 else f" ->before cmid={target}")
                 )
             changes.append(Change(
                 kind="MOVE_MODULE",
@@ -487,10 +486,10 @@ def diff(
 
 
 def push(
-    client: MoodleClientProtocol,
-    changes: list[Change],
-    progress: ProgressCb | None = None,
-    continue_on_error: bool = False,
+        client: MoodleClientProtocol,
+        changes: list[Change],
+        progress: ProgressCb | None = None,
+        continue_on_error: bool = False,
 ) -> list[tuple[Change, str]]:
     """Apply a list of Change objects to Moodle.
 
@@ -562,26 +561,26 @@ def _apply_change(client: MoodleClientProtocol, change: Change) -> None:
         form_changes = _course_settings_to_form(change.value)
         client.update_course(change.course_id, form_changes)
     elif (
-        change.kind == "MOVE_SECTION"
-        and change.section_id is not None
-        and change.course_id is not None
+            change.kind == "MOVE_SECTION"
+            and change.section_id is not None
+            and change.course_id is not None
     ):
         client.move_section(change.course_id, change.section_id, SectionId(change.target_cmid))
     elif (
-        change.kind == "CREATE_MODULE"
-        and change.course_id is not None
-        and change.section_num is not None
-        and change.modname
+            change.kind == "CREATE_MODULE"
+            and change.course_id is not None
+            and change.section_num is not None
+            and change.modname
     ):
         client.create_module(
             change.course_id, change.section_num, change.modname,
             change.new_name, change.new_settings or {},
         )
     elif (
-        change.kind == "MOVE_MODULE"
-        and change.cmid is not None
-        and change.section_id is not None
-        and change.course_id is not None
+            change.kind == "MOVE_MODULE"
+            and change.cmid is not None
+            and change.section_id is not None
+            and change.course_id is not None
     ):
         client.move_module(change.course_id, change.cmid, change.target_cmid, change.section_id)
     else:

@@ -28,35 +28,42 @@ CLI command → features/ function → MoodleClient method → HTTP
 
 ### AJAX vs scraping
 
-Try `ajax()` first. If it returns `"Can't find data record in database table external_functions"`, scrape the page instead. Grade pages redirect to `/login/index.php` on expired sessions — check `resp.url` after following redirects.
+Try `ajax()` first. If it returns `"Can't find data record in database table external_functions"`, scrape the page
+instead. Grade pages redirect to `/login/index.php` on expired sessions — check `resp.url` after following redirects.
 
 ### Grade submission is a 3-step process
 
 `client.submit_grade_for_user()` must:
+
 1. Scrape the grader page → `(assignment_id, context_id)` — these differ from `cmid`
-2. Call `core_get_fragment` (`mod_assign/gradingpanel`) → fresh form with a one-time `itemid` — **fetch immediately before submit, never cache**
+2. Call `core_get_fragment` (`mod_assign/gradingpanel`) → fresh form with a one-time `itemid` — **fetch immediately
+   before submit, never cache**
 3. Call `mod_assign_submit_grading_form` — empty list = success; non-empty = validation error
 
 Grade scale ("out of X") is parsed from the label `"Grade out of X"` in the fragment HTML.
 
 ### Grade report pagination
 
-`get_grade_report()` fetches `?page=0`, `?page=1`, … until a page returns fewer than 20 rows. Column headers are parsed only from page 0.
+`get_grade_report()` fetches `?page=0`, `?page=1`, … until a page returns fewer than 20 rows. Column headers are parsed
+only from page 0.
 
 ### ID types
 
 `Cmid`, `UserId`, `CourseId` are semantic `NewType`s — never mix them. Cast plain ints at the CLI boundary only:
+
 ```python
 CourseId(course_id), Cmid(cmid)
 ```
 
 ### Filtering pattern
 
-All filtering (by `role`, `name`, etc.) happens in `features/` after fetching — case-insensitive `in` check. Never filter in the client or CLI layer.
+All filtering (by `role`, `name`, etc.) happens in `features/` after fetching — case-insensitive `in` check. Never
+filter in the client or CLI layer.
 
 ### Windows Unicode
 
-`cli/main.py` calls `sys.stdout.reconfigure(encoding="utf-8")` at startup to handle Arabic names on cp1252 terminals. `output/formatters.py` uses `Console(legacy_windows=False)` for ANSI. CSV uses `utf-8-sig` (BOM) for Excel.
+`cli/main.py` calls `sys.stdout.reconfigure(encoding="utf-8")` at startup to handle Arabic names on cp1252 terminals.
+`output/formatters.py` uses `Console(legacy_windows=False)` for ANSI. CSV uses `utf-8-sig` (BOM) for Excel.
 
 ### `is_ungraded(submission)`
 
@@ -64,7 +71,8 @@ Returns `True` if `grading_status` contains no digits. The field looks like `"Gr
 
 ### `_normalise(user)` in `features/courses.py`
 
-Handles two shapes: API format (roles as list of dicts) and scrape format (roles as string). Don't add a third path without updating both call sites.
+Handles two shapes: API format (roles as list of dicts) and scrape format (roles as string). Don't add a third path
+without updating both call sites.
 
 ## Adding a new feature
 
@@ -77,4 +85,5 @@ Handles two shapes: API format (roles as list of dicts) and scrape format (roles
 
 ## `ai/` stubs
 
-`ai/client.py` (`AIClient`) wraps `anthropic.Anthropic`. `ai/grader.py` and `ai/responder.py` are `NotImplementedError` placeholders. Wire at the CLI layer — features must stay AI-free.
+`ai/client.py` (`AIClient`) wraps `anthropic.Anthropic`. `ai/grader.py` and `ai/responder.py` are `NotImplementedError`
+placeholders. Wire at the CLI layer — features must stay AI-free.

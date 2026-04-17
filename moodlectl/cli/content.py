@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -24,6 +23,7 @@ console = Console(legacy_windows=False)
 
 _DESC_WIDTH = 45  # fixed column width keeps the bar from jittering
 
+
 def _make_progress() -> Progress:
     return Progress(
         SpinnerColumn(),
@@ -38,6 +38,7 @@ def _make_progress() -> Progress:
         transient=True,
     )
 
+
 _COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`).")
 _CMID_OPT = typer.Option(..., "--cmid", help="Course-module ID (from `content list`).")
 _SECTION_OPT = typer.Option(..., "--section", "-s", help="Section number (0-indexed, from `content list`).")
@@ -49,11 +50,13 @@ _SECTION_OPT = typer.Option(..., "--section", "-s", help="Section number (0-inde
 
 @app.command("list")
 def list_content(
-    course: int = _COURSE_OPT,
-    section: Optional[int] = typer.Option(None, "--section", "-s", help="Filter to one section number (0-indexed)."),
-    type_: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by module type: forum, resource, url, page, assign, …"),
-    hidden: bool = typer.Option(True, "--hidden/--no-hidden", help="Include hidden items (default: yes)."),
-    output: str = typer.Option("tree", "--output", "-o", help="Output format: tree or json."),
+        course: int = _COURSE_OPT,
+        section: Optional[int] = typer.Option(None, "--section", "-s",
+                                              help="Filter to one section number (0-indexed)."),
+        type_: Optional[str] = typer.Option(None, "--type", "-t",
+                                            help="Filter by module type: forum, resource, url, page, assign, …"),
+        hidden: bool = typer.Option(True, "--hidden/--no-hidden", help="Include hidden items (default: yes)."),
+        output: str = typer.Option("tree", "--output", "-o", help="Output format: tree or json."),
 ) -> None:
     """List all sections and modules in a course.
 
@@ -109,8 +112,8 @@ def list_content(
 
 @app.command("show")
 def show_module(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
 ) -> None:
     """Show details for a single module.
 
@@ -145,8 +148,8 @@ def show_module(
 
 @app.command("hide")
 def hide_module(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
 ) -> None:
     """Hide a module from students.
 
@@ -164,8 +167,8 @@ def hide_module(
 
 @app.command("unhide")
 def unhide_module(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
 ) -> None:
     """Make a hidden module visible to students.
 
@@ -187,9 +190,9 @@ def unhide_module(
 
 @app.command("rename")
 def rename_module(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
-    name: str = typer.Option(..., "--name", "-n", help="New module name."),
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
+        name: str = typer.Option(..., "--name", "-n", help="New module name."),
 ) -> None:
     """Rename a module.
 
@@ -211,9 +214,9 @@ def rename_module(
 
 @app.command("delete")
 def delete_module(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
-    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt."),
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
+        force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompt."),
 ) -> None:
     """Delete a module permanently.
 
@@ -242,8 +245,8 @@ def delete_module(
 
 @section_app.command("hide")
 def hide_section(
-    course: int = _COURSE_OPT,
-    section: int = _SECTION_OPT,
+        course: int = _COURSE_OPT,
+        section: int = _SECTION_OPT,
 ) -> None:
     """Hide a section from students.
 
@@ -261,8 +264,8 @@ def hide_section(
 
 @section_app.command("unhide")
 def unhide_section(
-    course: int = _COURSE_OPT,
-    section: int = _SECTION_OPT,
+        course: int = _COURSE_OPT,
+        section: int = _SECTION_OPT,
 ) -> None:
     """Make a hidden section visible to students.
 
@@ -280,9 +283,9 @@ def unhide_section(
 
 @section_app.command("rename")
 def rename_section(
-    course: int = _COURSE_OPT,
-    section: int = _SECTION_OPT,
-    name: str = typer.Option(..., "--name", "-n", help="New section name."),
+        course: int = _COURSE_OPT,
+        section: int = _SECTION_OPT,
+        name: str = typer.Option(..., "--name", "-n", help="New section name."),
 ) -> None:
     """Rename a section.
 
@@ -304,8 +307,8 @@ def rename_section(
 
 @app.command("settings")
 def module_settings(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
 ) -> None:
     """Show all editable settings for a module.
 
@@ -344,10 +347,10 @@ def module_settings(
 
 @app.command("set")
 def set_module_setting(
-    course: int = _COURSE_OPT,
-    cmid: int = _CMID_OPT,
-    field: str = typer.Option(..., "--field", "-f", help="Setting name (from `content settings`)."),
-    value: str = typer.Option(..., "--value", "-v", help="New value for the setting."),
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
+        field: str = typer.Option(..., "--field", "-f", help="Setting name (from `content settings`)."),
+        value: str = typer.Option(..., "--value", "-v", help="New value for the setting."),
 ) -> None:
     """Change a single setting on a module.
 
@@ -373,12 +376,16 @@ def set_module_setting(
 
 @app.command("create")
 def create_module(
-    course: int = _COURSE_OPT,
-    section: Optional[int] = typer.Option(None, "--section", "-s", help="Section number (0-indexed). Required unless --from-yaml is used."),
-    type_: Optional[str] = typer.Option(None, "--type", "-t", help="Module type: label, page, url, assign, quiz, forum, resource, …"),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="Module name (required except for label)."),
-    set_: Optional[list[str]] = typer.Option(None, "--set", help="Settings override as key=value (repeatable): --set due_date='2026-05-01 23:59' --set max_grade=20"),
-    from_yaml: Optional[str] = typer.Option(None, "--from-yaml", "-f", help="YAML file: single module mapping, or a list of mappings, each with: section, type, name, settings."),
+        course: int = _COURSE_OPT,
+        section: Optional[int] = typer.Option(None, "--section", "-s",
+                                              help="Section number (0-indexed). Required unless --from-yaml is used."),
+        type_: Optional[str] = typer.Option(None, "--type", "-t",
+                                            help="Module type: label, page, url, assign, quiz, forum, resource, …"),
+        name: Optional[str] = typer.Option(None, "--name", "-n", help="Module name (required except for label)."),
+        set_: Optional[list[str]] = typer.Option(None, "--set",
+                                                 help="Settings override as key=value (repeatable): --set due_date='2026-05-01 23:59' --set max_grade=20"),
+        from_yaml: Optional[str] = typer.Option(None, "--from-yaml", "-f",
+                                                help="YAML file: single module mapping, or a list of mappings, each with: section, type, name, settings."),
 ) -> None:
     """Create one or more new modules in a course.
 
@@ -462,8 +469,9 @@ def create_module(
 
 @app.command("pull")
 def pull_content(
-    course: int = _COURSE_OPT,
-    output: Optional[str] = typer.Option(None, "--output", "-o", help="Write YAML to this file path. Default: print to stdout."),
+        course: int = _COURSE_OPT,
+        output: Optional[str] = typer.Option(None, "--output", "-o",
+                                             help="Write YAML to this file path. Default: print to stdout."),
 ) -> None:
     """Export the full course structure to a YAML file.
 
@@ -501,12 +509,14 @@ def pull_content(
 
 @app.command("push")
 def push_content(
-    file: str = typer.Argument(..., help="Path to the YAML file produced by `content pull`."),
-    course: Optional[int] = typer.Option(None, "--course", "-c", help="Course ID override (default: read from YAML course_id)."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without applying them."),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Apply without confirmation prompt."),
-    debug: bool = typer.Option(False, "--debug", help="Print full Python traceback on error."),
-    continue_on_error: bool = typer.Option(False, "--continue-on-error", help="Keep going when a single change fails; print a summary at the end."),
+        file: str = typer.Argument(..., help="Path to the YAML file produced by `content pull`."),
+        course: Optional[int] = typer.Option(None, "--course", "-c",
+                                             help="Course ID override (default: read from YAML course_id)."),
+        dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without applying them."),
+        yes: bool = typer.Option(False, "--yes", "-y", help="Apply without confirmation prompt."),
+        debug: bool = typer.Option(False, "--debug", help="Print full Python traceback on error."),
+        continue_on_error: bool = typer.Option(False, "--continue-on-error",
+                                               help="Keep going when a single change fails; print a summary at the end."),
 ) -> None:
     """Apply changes from a YAML file to a course.
 

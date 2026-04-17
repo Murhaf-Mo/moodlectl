@@ -138,7 +138,8 @@ def grades_boxplot(
 @app.command("letter-grades")
 def letter_grades(
         course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
-        grade_max: Optional[float] = typer.Option(None, "--grade-max", help="Maximum possible grade (auto-detected from report if omitted)"),
+        grade_max: Optional[float] = typer.Option(None, "--grade-max",
+                                                  help="Maximum possible grade (auto-detected from report if omitted)"),
         save: Optional[str] = typer.Option(None, "--save", help="File path to save chart"),
         fmt: str = typer.Option("png", "--fmt", help="File format: png or pdf"),
 ) -> None:
@@ -177,7 +178,7 @@ def letter_grades(
     buckets = bucket_grades(grades, effective_max)
     total = len(grades)
     table_data = [
-        {"grade": k, "count": v, "percent": f"{v/total*100:.1f}%" if total else "0%"}
+        {"grade": k, "count": v, "percent": f"{v / total * 100:.1f}%" if total else "0%"}
         for k, v in buckets.items()
     ]
     _console.print(f"\n[bold]Letter grades — {col}[/bold]  (n={total}, max={effective_max})")
@@ -283,7 +284,8 @@ def grade_progression(
 @app.command("at-risk")
 def at_risk(
         course_id: int = typer.Option(..., "--course", "-c", help="Moodle course ID"),
-        threshold: float = typer.Option(60.0, "--threshold", help="Percentage threshold (0-100) below which a student is at-risk (applied against course max)"),
+        threshold: float = typer.Option(60.0, "--threshold",
+                                        help="Percentage threshold (0-100) below which a student is at-risk (applied against course max)"),
 ) -> None:
     """List students who need immediate attention.
 
@@ -401,7 +403,7 @@ def summary(
         buckets = bucket_grades(grades, auto_max)
         total = len(grades)
         print_table(
-            [{"grade": k, "count": v, "percent": f"{v/total*100:.1f}%"} for k, v in buckets.items()],
+            [{"grade": k, "count": v, "percent": f"{v / total * 100:.1f}%"} for k, v in buckets.items()],
             ["grade", "count", "percent"],
         )
         _save = str(outdir / "2_letter_grades.png") if outdir else None

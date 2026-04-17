@@ -20,7 +20,7 @@ _COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses
 
 @app.command("settings")
 def course_settings(
-    course: int = _COURSE_OPT,
+        course: int = _COURSE_OPT,
 ) -> None:
     """Show all editable settings for a course.
 
@@ -48,9 +48,9 @@ def course_settings(
 
 @app.command("set")
 def set_course_setting(
-    course: int = _COURSE_OPT,
-    field: str = typer.Option(..., "--field", "-f", help="Setting name (from `courses settings`)."),
-    value: str = typer.Option(..., "--value", "-v", help="New value."),
+        course: int = _COURSE_OPT,
+        field: str = typer.Option(..., "--field", "-f", help="Setting name (from `courses settings`)."),
+        value: str = typer.Option(..., "--value", "-v", help="New value."),
 ) -> None:
     """Change a single setting on a course.
 

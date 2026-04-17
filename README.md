@@ -4,7 +4,9 @@ Automate your Moodle LMS from the command line.
 
 ![CI](https://github.com/Murhaf-Mo/workspace/actions/workflows/ci.yml/badge.svg)
 
-Courses, participants, assignments, grading, analytics, bulk content edits — all scriptable. Defaults to the public sandbox at [school.moodledemo.net](https://school.moodledemo.net) so you can try every command before pointing it at your own instance.
+Courses, participants, assignments, grading, analytics, bulk content edits — all scriptable. Defaults to the public
+sandbox at [school.moodledemo.net](https://school.moodledemo.net) so you can try every command before pointing it at
+your own instance.
 
 ---
 
@@ -61,7 +63,8 @@ moodlectl content list --course 51         # activities tree
 moodlectl analytics summary --course 69    # full visual report
 ```
 
-Demo course IDs used below: **51** Moodle Mountain, **69** Mindful Course Creation, **cmid 960** an `assign` module in course 51.
+Demo course IDs used below: **51** Moodle Mountain, **69** Mindful Course Creation, **cmid 960** an `assign` module in
+course 51.
 
 ---
 
@@ -131,7 +134,8 @@ moodlectl assignments download --course 51 --status active --out ./archive
 moodlectl assignments download --ungraded              # only files still to grade
 ```
 
-Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land in a sibling `_brief/` folder.
+Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land
+in a sibling `_brief/` folder.
 
 ### grading
 
@@ -203,16 +207,17 @@ moodlectl content create --course 83 --section 3 --type assign --name "Homework 
 moodlectl content create --course 83 --from-yaml new_modules.yaml   # bulk create
 ```
 
-`--set key=value` is repeatable and accepts any field from `content settings`. `--name` is required for every type except `label`. New modules are appended to the target section — use `content push` afterwards to reorder.
+`--set key=value` is repeatable and accepts any field from `content settings`. `--name` is required for every type
+except `label`. New modules are appended to the target section — use `content push` afterwards to reorder.
 
 **Editable fields by type:**
 
-| Type       | Fields |
-|------------|--------|
-| `assign`   | `description`, `due_date`, `available_from`, `cut_off`, `max_grade`, `grade_pass` |
+| Type       | Fields                                                                                                        |
+|------------|---------------------------------------------------------------------------------------------------------------|
+| `assign`   | `description`, `due_date`, `available_from`, `cut_off`, `max_grade`, `grade_pass`                             |
 | `quiz`     | `description`, `due_date`, `available_from`, `cut_off`, `time_limit_mins`, `attempts_allowed`, `grade_method` |
-| `forum`    | `description`, `subscription_mode`, `max_attachments` |
-| *(others)* | `description` |
+| `forum`    | `description`, `subscription_mode`, `max_attachments`                                                         |
+| *(others)* | `description`                                                                                                 |
 
 Dates use `"YYYY-MM-DD HH:MM"`.
 
@@ -225,7 +230,8 @@ moodlectl content push course.yaml               # prompts to confirm
 moodlectl content push course.yaml --yes         # apply without prompt
 ```
 
-Each module gets a `settings:` block with every editable field for its type. Only changed values are pushed. Reorder entries in the YAML to reorder modules/sections. Modules removed from the YAML are flagged but never auto-deleted.
+Each module gets a `settings:` block with every editable field for its type. Only changed values are pushed. Reorder
+entries in the YAML to reorder modules/sections. Modules removed from the YAML are flagged but never auto-deleted.
 
 **Add modules via YAML** — drop an entry into any section with no `cmid` (push will create it):
 
@@ -236,7 +242,9 @@ Each module gets a `settings:` block with every editable field for its type. Onl
     external_url: https://example.com
 ```
 
-Works both in `content push` (alongside edits/reorders) and standalone via `content create --from-yaml`. Accepts either a single mapping or a list; top-level `section: <n>` is required when the file is consumed by `content create`, inferred from position when consumed by `content push`.
+Works both in `content push` (alongside edits/reorders) and standalone via `content create --from-yaml`. Accepts either
+a single mapping or a list; top-level `section: <n>` is required when the file is consumed by `content create`, inferred
+from position when consumed by `content push`.
 
 ### messages
 

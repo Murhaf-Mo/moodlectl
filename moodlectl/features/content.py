@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from moodlectl.types import Cmid, CourseId, CourseModule, CourseSection, MoodleClientProtocol, SectionId
+from moodlectl.types import Cmid, CourseId, CourseModule, CourseSection, MoodleClientProtocol
 
 
 def get_sections(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    section_num: int | None = None,
-    modtype: str | None = None,
-    show_hidden: bool = True,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        section_num: int | None = None,
+        modtype: str | None = None,
+        show_hidden: bool = True,
 ) -> list[CourseSection]:
     """Return course sections, with optional filters applied in this layer."""
     sections = client.get_course_sections(course_id)
@@ -36,9 +36,9 @@ def get_sections(
 
 
 def find_module(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
 ) -> CourseModule | None:
     """Find a specific module anywhere in the course by cmid."""
     for section in client.get_course_sections(course_id):
@@ -56,10 +56,10 @@ def _resolve_section(sections: list[CourseSection], section_num: int) -> CourseS
 
 
 def set_module_visible(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
-    visible: bool,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
+        visible: bool,
 ) -> None:
     if find_module(client, course_id, cmid) is None:
         raise ValueError(f"Module cmid={cmid} not found in course {course_id}")
@@ -67,10 +67,10 @@ def set_module_visible(
 
 
 def set_section_visible(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    section_num: int,
-    visible: bool,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        section_num: int,
+        visible: bool,
 ) -> None:
     sections = client.get_course_sections(course_id)
     section = _resolve_section(sections, section_num)
@@ -78,10 +78,10 @@ def set_section_visible(
 
 
 def rename_module(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
-    name: str,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
+        name: str,
 ) -> None:
     name = name.strip()
     if not name:
@@ -92,10 +92,10 @@ def rename_module(
 
 
 def rename_section(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    section_num: int,
-    name: str,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        section_num: int,
+        name: str,
 ) -> None:
     name = name.strip()
     if not name:
@@ -106,9 +106,9 @@ def rename_section(
 
 
 def delete_module(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
 ) -> None:
     if find_module(client, course_id, cmid) is None:
         raise ValueError(f"Module cmid={cmid} not found in course {course_id}")
@@ -116,9 +116,9 @@ def delete_module(
 
 
 def get_module_settings(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
 ) -> dict[str, str]:
     """Return the raw modedit.php form fields for a module (all 100+ fields)."""
     if find_module(client, course_id, cmid) is None:
@@ -135,12 +135,12 @@ _VALID_MODNAMES = {
 
 
 def create_module(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    section_num: int,
-    modname: str,
-    name: str,
-    settings: dict[str, Any] | None = None,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        section_num: int,
+        modname: str,
+        name: str,
+        settings: dict[str, Any] | None = None,
 ) -> Cmid:
     """Create a new module and return its cmid.
 
@@ -164,11 +164,11 @@ def create_module(
 
 
 def set_module_setting(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    cmid: Cmid,
-    field: str,
-    value: str,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        cmid: Cmid,
+        field: str,
+        value: str,
 ) -> None:
     """Set a single setting on a module.
 

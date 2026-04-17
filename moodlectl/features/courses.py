@@ -190,11 +190,11 @@ def _normalise(user: Participant) -> Participant:
 
 
 def get_course_settings(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
 ) -> dict[str, object]:
     """Return the curated settings dict for a course."""
-    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA, _build_module_settings
+    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA
     form = client.get_course_form(course_id)
     result: dict[str, object] = {}
     for key, (field, kind) in _COURSE_SETTINGS_SCHEMA.items():
@@ -229,13 +229,13 @@ def get_course_settings(
 
 
 def set_course_setting(
-    client: MoodleClientProtocol,
-    course_id: CourseId,
-    field: str,
-    value: str,
+        client: MoodleClientProtocol,
+        course_id: CourseId,
+        field: str,
+        value: str,
 ) -> None:
     """Set a single course setting by human-readable name or raw form field."""
-    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA, _settings_to_form
+    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA
 
     schema_modname = "__course__"
     if field in _COURSE_SETTINGS_SCHEMA:

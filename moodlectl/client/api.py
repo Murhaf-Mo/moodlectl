@@ -69,11 +69,11 @@ def _parse_datetime(form: dict[str, str], prefix: str, always_on: bool = False) 
         if not form.get(f"{prefix}[enabled]", ""):
             return ""
     try:
-        day   = int(form.get(f"{prefix}[day]",    "1"))
-        month = int(form.get(f"{prefix}[month]",  "1"))
-        year  = int(form.get(f"{prefix}[year]",   "2000"))
-        hour  = int(form.get(f"{prefix}[hour]",   "0"))
-        minute = int(form.get(f"{prefix}[minute]","0"))
+        day = int(form.get(f"{prefix}[day]", "1"))
+        month = int(form.get(f"{prefix}[month]", "1"))
+        year = int(form.get(f"{prefix}[year]", "2000"))
+        hour = int(form.get(f"{prefix}[hour]", "0"))
+        minute = int(form.get(f"{prefix}[minute]", "0"))
         return datetime(year, month, day, hour, minute).strftime("%Y-%m-%d %H:%M")
     except (ValueError, TypeError):
         return ""
@@ -87,11 +87,11 @@ def _datetime_to_form(value: str, prefix: str) -> dict[str, str]:
         raise ValueError(f"Date must be 'YYYY-MM-DD HH:MM', got {value!r}")
     return {
         f"{prefix}[enabled]": "1",
-        f"{prefix}[day]":     str(dt.day),
-        f"{prefix}[month]":   str(dt.month),
-        f"{prefix}[year]":    str(dt.year),
-        f"{prefix}[hour]":    str(dt.hour),
-        f"{prefix}[minute]":  str(dt.minute),
+        f"{prefix}[day]": str(dt.day),
+        f"{prefix}[month]": str(dt.month),
+        f"{prefix}[year]": str(dt.year),
+        f"{prefix}[hour]": str(dt.hour),
+        f"{prefix}[minute]": str(dt.minute),
     }
 
 
@@ -108,7 +108,7 @@ def _parse_duration_mins(form: dict[str, str], prefix: str) -> int:
     if enabled_key in form and not form[enabled_key]:
         return 0
     try:
-        number   = int(form.get(f"{prefix}[number]",   "0"))
+        number = int(form.get(f"{prefix}[number]", "0"))
         timeunit = int(form.get(f"{prefix}[timeunit]", "60"))
         return number * timeunit // 60
     except (ValueError, TypeError):
@@ -122,13 +122,13 @@ def _duration_mins_to_form(mins: int, prefix: str) -> dict[str, str]:
     """
     if mins:
         return {
-            f"{prefix}[enabled]":  "1",
-            f"{prefix}[number]":   str(int(mins)),
+            f"{prefix}[enabled]": "1",
+            f"{prefix}[number]": str(int(mins)),
             f"{prefix}[timeunit]": "60",
         }
     return {
-        f"{prefix}[enabled]":  "",
-        f"{prefix}[number]":   "0",
+        f"{prefix}[enabled]": "",
+        f"{prefix}[number]": "0",
         f"{prefix}[timeunit]": "60",
     }
 
@@ -146,162 +146,162 @@ def _duration_mins_to_form(mins: int, prefix: str) -> dict[str, str]:
 #
 _COMMON_SCHEMA: dict[str, tuple[str, str]] = {
     # General
-    "id_number":              ("cmidnumber",          "str"),
-    "show_description":       ("showdescription",     "int"),
-    "force_language":         ("lang",                "str"),
+    "id_number": ("cmidnumber", "str"),
+    "show_description": ("showdescription", "int"),
+    "force_language": ("lang", "str"),
     # Groups
-    "group_mode":             ("groupmode",           "int"),
-    "grouping":               ("groupingid",          "int"),
+    "group_mode": ("groupmode", "int"),
+    "grouping": ("groupingid", "int"),
     # Tags
-    "tags":                   ("tags",                "tags"),
+    "tags": ("tags", "tags"),
     # Competencies
-    "competency_rule":        ("competency_rule",     "int"),
+    "competency_rule": ("competency_rule", "int"),
     # Completion tracking
-    "completion":             ("completion",          "int"),   # 0=none 1=manual 2=auto
-    "completion_on_view":     ("completionview",      "int"),
-    "completion_on_grade":    ("completionusegrade",  "int"),
-    "completion_pass_grade":  ("completionpassgrade", "int"),
-    "completion_expected":    ("completionexpected",  "datetime"),
+    "completion": ("completion", "int"),  # 0=none 1=manual 2=auto
+    "completion_on_view": ("completionview", "int"),
+    "completion_on_grade": ("completionusegrade", "int"),
+    "completion_pass_grade": ("completionpassgrade", "int"),
+    "completion_expected": ("completionexpected", "datetime"),
 }
 
 _SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
     "assign": {
         **_COMMON_SCHEMA,
-        "description":              ("introeditor[text]",                    "str"),
-        "due_date":                 ("duedate",                              "datetime"),
-        "available_from":           ("allowsubmissionsfromdate",             "datetime"),
-        "cut_off":                  ("cutoffdate",                           "datetime"),
-        "grading_due":              ("gradingduedate",                       "datetime"),
-        "max_grade":                ("grade[modgrade_point]",                "float"),
-        "grade_pass":               ("gradepass",                            "float"),
-        "grade_category":           ("gradecat",                             "int"),
-        "submission_drafts":        ("submissiondrafts",                     "int"),
-        "require_statement":        ("requiresubmissionstatement",           "int"),
-        "online_text_enabled":      ("assignsubmission_onlinetext_enabled",  "int"),
-        "file_enabled":             ("assignsubmission_file_enabled",        "int"),
-        "max_files":                ("assignsubmission_file_maxfiles",       "int"),
-        "max_file_size":            ("assignsubmission_file_maxsizebytes",   "int"),
-        "allowed_file_types":       ("assignsubmission_file_filetypes[filetypes]", "str"),
-        "inline_comments":          ("assignfeedback_comments_commentinline","int"),
-        "notify_graders":           ("sendnotifications",                    "int"),
-        "notify_graders_late":      ("sendlatenotifications",                "int"),
-        "notify_students":          ("sendstudentnotifications",             "int"),
-        "blind_marking":            ("blindmarking",                         "int"),
-        "hide_grader":              ("hidegrader",                           "int"),
-        "marking_workflow":         ("markingworkflow",                      "int"),
-        "marking_allocation":       ("markingallocation",                    "int"),
-        "team_submission":          ("teamsubmission",                       "int"),
-        "reopen_attempts":          ("attemptreopenmethod",                  "str"),
-        "max_attempts":             ("maxattempts",                          "int"),
-        "completion_on_submit":     ("completionsubmit",                     "int"),
-        "grading_method":           ("advancedgradingmethod_submissions",    "str"),
+        "description": ("introeditor[text]", "str"),
+        "due_date": ("duedate", "datetime"),
+        "available_from": ("allowsubmissionsfromdate", "datetime"),
+        "cut_off": ("cutoffdate", "datetime"),
+        "grading_due": ("gradingduedate", "datetime"),
+        "max_grade": ("grade[modgrade_point]", "float"),
+        "grade_pass": ("gradepass", "float"),
+        "grade_category": ("gradecat", "int"),
+        "submission_drafts": ("submissiondrafts", "int"),
+        "require_statement": ("requiresubmissionstatement", "int"),
+        "online_text_enabled": ("assignsubmission_onlinetext_enabled", "int"),
+        "file_enabled": ("assignsubmission_file_enabled", "int"),
+        "max_files": ("assignsubmission_file_maxfiles", "int"),
+        "max_file_size": ("assignsubmission_file_maxsizebytes", "int"),
+        "allowed_file_types": ("assignsubmission_file_filetypes[filetypes]", "str"),
+        "inline_comments": ("assignfeedback_comments_commentinline", "int"),
+        "notify_graders": ("sendnotifications", "int"),
+        "notify_graders_late": ("sendlatenotifications", "int"),
+        "notify_students": ("sendstudentnotifications", "int"),
+        "blind_marking": ("blindmarking", "int"),
+        "hide_grader": ("hidegrader", "int"),
+        "marking_workflow": ("markingworkflow", "int"),
+        "marking_allocation": ("markingallocation", "int"),
+        "team_submission": ("teamsubmission", "int"),
+        "reopen_attempts": ("attemptreopenmethod", "str"),
+        "max_attempts": ("maxattempts", "int"),
+        "completion_on_submit": ("completionsubmit", "int"),
+        "grading_method": ("advancedgradingmethod_submissions", "str"),
     },
     "quiz": {
         **_COMMON_SCHEMA,
         # General
-        "description":                  ("introeditor[text]",    "str"),
+        "description": ("introeditor[text]", "str"),
         # Timing
-        "available_from":               ("timeopen",             "datetime"),
-        "due_date":                     ("timeclose",            "datetime"),
-        "time_limit_mins":              ("timelimit",            "duration_mins"),
-        "when_time_expires":            ("overduehandling",      "str"),   # autosubmit|graceperiod|autoabandon
-        "grace_period_mins":            ("graceperiod",          "duration_mins"),
+        "available_from": ("timeopen", "datetime"),
+        "due_date": ("timeclose", "datetime"),
+        "time_limit_mins": ("timelimit", "duration_mins"),
+        "when_time_expires": ("overduehandling", "str"),  # autosubmit|graceperiod|autoabandon
+        "grace_period_mins": ("graceperiod", "duration_mins"),
         # Grade
-        "max_grade":                    ("grade",                "float"),
-        "grade_category":               ("gradecat",             "int"),
-        "grade_to_pass":                ("gradepass",            "float"),
-        "grade_method":                 ("grademethod",          "str"),   # 1=highest 2=avg 3=first 4=last
-        "attempts_allowed":             ("attempts",             "int"),
-        "delay_1_mins":                 ("delay1",               "duration_mins"),
-        "delay_2_mins":                 ("delay2",               "duration_mins"),
+        "max_grade": ("grade", "float"),
+        "grade_category": ("gradecat", "int"),
+        "grade_to_pass": ("gradepass", "float"),
+        "grade_method": ("grademethod", "str"),  # 1=highest 2=avg 3=first 4=last
+        "attempts_allowed": ("attempts", "int"),
+        "delay_1_mins": ("delay1", "duration_mins"),
+        "delay_2_mins": ("delay2", "duration_mins"),
         # Layout
-        "questions_per_page":           ("questionsperpage",     "int"),
-        "navigation_method":            ("navmethod",            "str"),   # free|sequential
+        "questions_per_page": ("questionsperpage", "int"),
+        "navigation_method": ("navmethod", "str"),  # free|sequential
         # Question behaviour
-        "shuffle_answers":              ("shuffleanswers",       "int"),
-        "review_behaviour":             ("preferredbehaviour",   "str"),   # deferredfeedback|immediatefeedback|etc
-        "redo_questions":               ("canredoquestions",     "int"),
+        "shuffle_answers": ("shuffleanswers", "int"),
+        "review_behaviour": ("preferredbehaviour", "str"),  # deferredfeedback|immediatefeedback|etc
+        "redo_questions": ("canredoquestions", "int"),
         # Review options — during attempt
-        "review_attempt_during":        ("attemptduring",        "int"),
+        "review_attempt_during": ("attemptduring", "int"),
         # Review options — after closing
-        "review_attempt_closed":        ("attemptclosed",        "int"),
-        "review_attempt_on_last":       ("attemptonlast",        "int"),
-        "review_correctness_closed":    ("correctnessclosed",    "int"),
-        "review_marks_closed":          ("marksclosed",          "int"),
-        "review_max_marks_closed":      ("maxmarksclosed",       "int"),
+        "review_attempt_closed": ("attemptclosed", "int"),
+        "review_attempt_on_last": ("attemptonlast", "int"),
+        "review_correctness_closed": ("correctnessclosed", "int"),
+        "review_marks_closed": ("marksclosed", "int"),
+        "review_max_marks_closed": ("maxmarksclosed", "int"),
         "review_specific_feedback_closed": ("specificfeedbackclosed", "int"),
-        "review_general_feedback_closed":  ("generalfeedbackclosed",  "int"),
-        "review_right_answer_closed":   ("rightanswerclosed",    "int"),
-        "review_overall_feedback_closed":  ("overallfeedbackclosed",  "int"),
+        "review_general_feedback_closed": ("generalfeedbackclosed", "int"),
+        "review_right_answer_closed": ("rightanswerclosed", "int"),
+        "review_overall_feedback_closed": ("overallfeedbackclosed", "int"),
         # Appearance
-        "show_user_picture":            ("showuserpicture",      "int"),
-        "decimal_places":               ("decimalpoints",        "int"),
-        "question_decimal_places":      ("questiondecimalpoints","int"),
-        "show_blocks":                  ("showblocks",           "int"),
+        "show_user_picture": ("showuserpicture", "int"),
+        "decimal_places": ("decimalpoints", "int"),
+        "question_decimal_places": ("questiondecimalpoints", "int"),
+        "show_blocks": ("showblocks", "int"),
         # Security / restrictions
-        "password":                     ("quizpassword",         "str"),
-        "network_address":              ("subnet",               "str"),
-        "browser_security":             ("browsersecurity",      "str"),
-        "start_time_limit_mins":        ("startlimit",           "duration_mins"),
+        "password": ("quizpassword", "str"),
+        "network_address": ("subnet", "str"),
+        "browser_security": ("browsersecurity", "str"),
+        "start_time_limit_mins": ("startlimit", "duration_mins"),
         # Safe Exam Browser
-        "seb_require":                  ("seb_requiresafeexambrowser", "str"),
-        "seb_show_download_link":       ("seb_showsebdownloadlink",    "int"),
-        "seb_allow_quit":               ("seb_allowuserquitseb",       "int"),
-        "seb_confirm_quit":             ("seb_userconfirmquit",        "int"),
-        "seb_quit_password":            ("seb_quitpassword",           "str"),
-        "seb_allow_reload":             ("seb_allowreloadinexam",      "int"),
-        "seb_show_taskbar":             ("seb_showsebtaskbar",         "int"),
-        "seb_show_reload_button":       ("seb_showreloadbutton",       "int"),
-        "seb_show_time":                ("seb_showtime",               "int"),
-        "seb_show_keyboard":            ("seb_showkeyboardlayout",     "int"),
-        "seb_show_wifi":                ("seb_showwificontrol",        "int"),
-        "seb_enable_audio":             ("seb_enableaudiocontrol",     "int"),
-        "seb_mute_on_startup":          ("seb_muteonstartup",          "int"),
-        "seb_allow_spell_check":        ("seb_allowspellchecking",     "int"),
-        "seb_url_filtering":            ("seb_activateurlfiltering",   "int"),
+        "seb_require": ("seb_requiresafeexambrowser", "str"),
+        "seb_show_download_link": ("seb_showsebdownloadlink", "int"),
+        "seb_allow_quit": ("seb_allowuserquitseb", "int"),
+        "seb_confirm_quit": ("seb_userconfirmquit", "int"),
+        "seb_quit_password": ("seb_quitpassword", "str"),
+        "seb_allow_reload": ("seb_allowreloadinexam", "int"),
+        "seb_show_taskbar": ("seb_showsebtaskbar", "int"),
+        "seb_show_reload_button": ("seb_showreloadbutton", "int"),
+        "seb_show_time": ("seb_showtime", "int"),
+        "seb_show_keyboard": ("seb_showkeyboardlayout", "int"),
+        "seb_show_wifi": ("seb_showwificontrol", "int"),
+        "seb_enable_audio": ("seb_enableaudiocontrol", "int"),
+        "seb_mute_on_startup": ("seb_muteonstartup", "int"),
+        "seb_allow_spell_check": ("seb_allowspellchecking", "int"),
+        "seb_url_filtering": ("seb_activateurlfiltering", "int"),
         # Completion (quiz-specific extras beyond _COMMON_SCHEMA)
-        "completion_min_attempts":      ("completionminattempts",      "int"),
-        "completion_attempts_exhausted":("completionattemptsexhausted","int"),
+        "completion_min_attempts": ("completionminattempts", "int"),
+        "completion_attempts_exhausted": ("completionattemptsexhausted", "int"),
     },
     "forum": {
         **_COMMON_SCHEMA,
-        "description":              ("introeditor[text]",  "str"),
-        "forum_type":               ("type",               "str"),
-        "max_file_size":            ("maxbytes",           "int"),
-        "max_attachments":          ("maxattachments",     "int"),
-        "subscription_mode":        ("forcesubscribe",     "str"),  # 0=optional 1=forced 2=auto 3=disabled
-        "tracking_type":            ("trackingtype",       "str"),
-        "completion_posts":         ("completionposts",    "int"),
-        "completion_discussions":   ("completiondiscussions", "int"),
-        "completion_replies":       ("completionreplies",  "int"),
+        "description": ("introeditor[text]", "str"),
+        "forum_type": ("type", "str"),
+        "max_file_size": ("maxbytes", "int"),
+        "max_attachments": ("maxattachments", "int"),
+        "subscription_mode": ("forcesubscribe", "str"),  # 0=optional 1=forced 2=auto 3=disabled
+        "tracking_type": ("trackingtype", "str"),
+        "completion_posts": ("completionposts", "int"),
+        "completion_discussions": ("completiondiscussions", "int"),
+        "completion_replies": ("completionreplies", "int"),
     },
     "resource": {
         **_COMMON_SCHEMA,
-        "description":   ("introeditor[text]", "str"),
-        "display_mode":  ("display",           "int"),   # 0=auto 1=embed 2=force download etc.
-        "show_size":     ("showsize",          "int"),
-        "show_type":     ("showtype",          "int"),
-        "show_date":     ("showdate",          "int"),
+        "description": ("introeditor[text]", "str"),
+        "display_mode": ("display", "int"),  # 0=auto 1=embed 2=force download etc.
+        "show_size": ("showsize", "int"),
+        "show_type": ("showtype", "int"),
+        "show_date": ("showdate", "int"),
     },
     "url": {
         **_COMMON_SCHEMA,
-        "description":   ("introeditor[text]", "str"),
-        "external_url":  ("externalurl",       "str"),
-        "display_mode":  ("display",           "int"),
+        "description": ("introeditor[text]", "str"),
+        "external_url": ("externalurl", "str"),
+        "display_mode": ("display", "int"),
     },
     "page": {
         **_COMMON_SCHEMA,
-        "description":   ("introeditor[text]",        "str"),
-        "content":       ("page[text]",               "str"),
-        "display_mode":  ("display",                  "int"),
+        "description": ("introeditor[text]", "str"),
+        "content": ("page[text]", "str"),
+        "display_mode": ("display", "int"),
     },
     "label": {
         **_COMMON_SCHEMA,
-        "content":       ("introeditor[text]", "str"),
+        "content": ("introeditor[text]", "str"),
     },
     "assign_default": {
         **_COMMON_SCHEMA,
-        "description":   ("introeditor[text]", "str"),
+        "description": ("introeditor[text]", "str"),
     },
 }
 _DEFAULT_SCHEMA = _SETTINGS_SCHEMA["assign_default"]
@@ -310,35 +310,35 @@ _DEFAULT_SCHEMA = _SETTINGS_SCHEMA["assign_default"]
 # type_hint: same as module schema — "str" | "int" | "float" | "datetime" | "tags"
 _COURSE_SETTINGS_SCHEMA: dict[str, tuple[str, str]] = {
     # General
-    "fullname":                  ("fullname",              "str"),
-    "shortname":                 ("shortname",             "str"),
-    "id_number":                 ("idnumber",              "str"),
-    "visible":                   ("visible",               "int"),
-    "start_date":                ("startdate",             "datetime_always"),
-    "end_date":                  ("enddate",               "datetime"),
+    "fullname": ("fullname", "str"),
+    "shortname": ("shortname", "str"),
+    "id_number": ("idnumber", "str"),
+    "visible": ("visible", "int"),
+    "start_date": ("startdate", "datetime_always"),
+    "end_date": ("enddate", "datetime"),
     # Description
-    "summary":                   ("summary_editor[text]",  "str"),
+    "summary": ("summary_editor[text]", "str"),
     # Course format
-    "format":                    ("format",                "str"),   # topics|weeks|social|singleactivity
-    "hidden_sections":           ("hiddensections",        "int"),   # 0=collapsed 1=invisible
-    "course_layout":             ("coursedisplay",         "int"),   # 0=all on one page 1=one section per page
+    "format": ("format", "str"),  # topics|weeks|social|singleactivity
+    "hidden_sections": ("hiddensections", "int"),  # 0=collapsed 1=invisible
+    "course_layout": ("coursedisplay", "int"),  # 0=all on one page 1=one section per page
     # Appearance
-    "force_language":            ("lang",                  "str"),
-    "announcements_count":       ("newsitems",             "int"),
-    "show_gradebook":            ("showgrades",            "int"),
-    "show_activity_reports":     ("showreports",           "int"),
-    "show_activity_dates":       ("showactivitydates",     "int"),
+    "force_language": ("lang", "str"),
+    "announcements_count": ("newsitems", "int"),
+    "show_gradebook": ("showgrades", "int"),
+    "show_activity_reports": ("showreports", "int"),
+    "show_activity_dates": ("showactivitydates", "int"),
     # Files and uploads
-    "max_upload_size":           ("maxbytes",              "int"),
+    "max_upload_size": ("maxbytes", "int"),
     # Completion tracking
-    "enable_completion":         ("enablecompletion",      "int"),
-    "show_completion_conditions":("showcompletionconditions","int"),
+    "enable_completion": ("enablecompletion", "int"),
+    "show_completion_conditions": ("showcompletionconditions", "int"),
     # Groups
-    "group_mode":                ("groupmode",             "int"),   # 0=no groups 1=separate 2=visible
-    "force_group_mode":          ("groupmodeforce",        "int"),
-    "default_grouping":          ("defaultgroupingid",     "int"),
+    "group_mode": ("groupmode", "int"),  # 0=no groups 1=separate 2=visible
+    "force_group_mode": ("groupmodeforce", "int"),
+    "default_grouping": ("defaultgroupingid", "int"),
     # Tags
-    "tags":                      ("tags",                  "tags"),
+    "tags": ("tags", "tags"),
 }
 
 
@@ -1282,12 +1282,12 @@ class MoodleAPI(MoodleClientBase):
         return self._scrape_modedit_form({"update": int(cmid), "return": 0})
 
     def create_module(
-        self,
-        course_id: CourseId,
-        section_num: int,
-        modname: str,
-        name: str,
-        settings: dict[str, Any] | None = None,
+            self,
+            course_id: CourseId,
+            section_num: int,
+            modname: str,
+            name: str,
+            settings: dict[str, Any] | None = None,
     ) -> Cmid:
         """Create a new course module.
 
@@ -1418,7 +1418,7 @@ class MoodleAPI(MoodleClientBase):
         # Success: Moodle redirects to the course or module view page.
         # Failure: stays on modedit.php and shows validation errors in HTML.
         if "modedit.php" in resp.url and resp.status_code == 200:
-            import tempfile, os
+            import tempfile
             soup = BeautifulSoup(resp.text, "html.parser")
             msg = ""
             for candidate in [

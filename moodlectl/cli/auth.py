@@ -3,9 +3,9 @@ from __future__ import annotations
 import os
 import re
 import time
-from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 import typer
@@ -156,16 +156,16 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
 
 @app.command("login")
 def login(
-    session: str | None = typer.Option(
-        None,
-        "--session",
-        help="MoodleSession cookie value (skips browser). Get it from F12 → Application → Cookies.",
-    ),
-    sesskey: str | None = typer.Option(
-        None,
-        "--sesskey",
-        help="Moodle sesskey value (skips browser). Get it from F12 → Network → any service.php request body.",
-    ),
+        session: str | None = typer.Option(
+            None,
+            "--session",
+            help="MoodleSession cookie value (skips browser). Get it from F12 → Application → Cookies.",
+        ),
+        sesskey: str | None = typer.Option(
+            None,
+            "--sesskey",
+            help="Moodle sesskey value (skips browser). Get it from F12 → Network → any service.php request body.",
+        ),
 ) -> None:
     """Open Chrome and automatically save your Moodle session credentials.
 
@@ -352,10 +352,10 @@ def check_session() -> None:
 
 @app.command("set-url")
 def set_url(
-    url: str = typer.Argument(
-        ...,
-        help="Base URL of the Moodle instance (e.g. https://school.moodledemo.net).",
-    ),
+        url: str = typer.Argument(
+            ...,
+            help="Base URL of the Moodle instance (e.g. https://school.moodledemo.net).",
+        ),
 ) -> None:
     """Set the Moodle base URL and save it to .env.
 
@@ -375,8 +375,8 @@ def set_url(
 
 @app.command("set-session")
 def set_session(
-    session: str = typer.Argument(..., help="MoodleSession cookie value."),
-    sesskey: str = typer.Argument(..., help="Moodle sesskey value."),
+        session: str = typer.Argument(..., help="MoodleSession cookie value."),
+        sesskey: str = typer.Argument(..., help="Moodle sesskey value."),
 ) -> None:
     """Manually save a MoodleSession cookie and sesskey to .env.
 

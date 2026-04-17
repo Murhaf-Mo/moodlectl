@@ -29,9 +29,11 @@ ANALYTICS_AVAILABLE: bool = False
 try:
     import plotext as _pt  # type: ignore[reportMissingTypeStubs]
     import matplotlib as _mpl
+
     _mpl.use("Agg")  # must be set before importing pyplot
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
     ANALYTICS_AVAILABLE = True  # type: ignore[reportConstantRedefinition]
 except ImportError:
     pass
@@ -158,7 +160,7 @@ def plot_grade_boxplot(
             for d in data:
                 g = d["grades"]
                 print(f"  {d['assignment'][:40]:<40}  "
-                      f"min={min(g):.1f}  median={sorted(g)[len(g)//2]:.1f}  max={max(g):.1f}")
+                      f"min={min(g):.1f}  median={sorted(g)[len(g) // 2]:.1f}  max={max(g):.1f}")
             return
         # plotext has no native boxplot — render as bar chart of medians with range annotation
         _pt.clf()
@@ -199,7 +201,8 @@ def plot_letter_grade_bars(
         for bar, count in zip(bars, counts):  # type: ignore[reportUnknownVariableType]
             if count:
                 ax.text(
-                    bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,  # type: ignore[reportUnknownArgumentType]
+                    bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.2,
+                    # type: ignore[reportUnknownArgumentType]
                     str(count), ha="center", va="bottom", fontsize=10,
                 )
         _save_fig(fig, save_path, fmt)

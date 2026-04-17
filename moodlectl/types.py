@@ -61,19 +61,19 @@ class FileRef(TypedDict):
 class CourseModule(TypedDict):
     cmid: Cmid
     name: str
-    modname: str      # "forum", "resource", "label", "url", "page", "assign", …
+    modname: str  # "forum", "resource", "label", "url", "page", "assign", …
     visible: bool
-    url: str          # deeplink to activity page (empty string if absent)
+    url: str  # deeplink to activity page (empty string if absent)
     description: str  # inline description shown on the course page (empty if absent)
-    due_date: str     # due date string for assign/quiz (empty for other types)
+    due_date: str  # due date string for assign/quiz (empty for other types)
     settings: dict[str, Any]  # curated per-type settings (empty unless fetch_settings=True)
 
 
 class CourseSection(TypedDict):
-    id: SectionId     # DB id — used in API calls, not shown to users
-    number: int       # ordinal 0-indexed position — shown to users
+    id: SectionId  # DB id — used in API calls, not shown to users
+    number: int  # ordinal 0-indexed position — shown to users
     name: str
-    summary: str      # section description/summary (empty if absent)
+    summary: str  # section description/summary (empty if absent)
     visible: bool
     modules: list[CourseModule]
 
@@ -261,18 +261,18 @@ class GradeStats(TypedDict):
 
 class AssignmentGrades(TypedDict):
     """Per-assignment grade list — one entry per grade-item column in the grade report."""
-    assignment: str       # grade item column name (e.g. "Assignment 1")
-    grades: list[float]   # one float per student who has a numeric grade
+    assignment: str  # grade item column name (e.g. "Assignment 1")
+    grades: list[float]  # one float per student who has a numeric grade
 
 
 class SubmissionSummary(TypedDict):
     """Counts of submission states for one assignment."""
     cmid: Cmid
     name: str
-    submitted: int    # has at least one uploaded file
-    ungraded: int     # submitted but grading_status has no digits
-    missing: int      # enrolled students with no submission on record
-    total: int        # submitted + missing (enrolled student count)
+    submitted: int  # has at least one uploaded file
+    ungraded: int  # submitted but grading_status has no digits
+    missing: int  # enrolled students with no submission on record
+    total: int  # submitted + missing (enrolled student count)
 
 
 class AtRiskStudent(TypedDict):
@@ -281,9 +281,9 @@ class AtRiskStudent(TypedDict):
     fullname: str
     email: str
     course_total: float | None  # None when the grade report row has no numeric value yet
-    missing_count: int          # assignments with no file submission
-    ungraded_count: int         # submissions awaiting a grade
-    action: str                 # "remind" | "grade" | "both"
+    missing_count: int  # assignments with no file submission
+    ungraded_count: int  # submissions awaiting a grade
+    action: str  # "remind" | "grade" | "both"
 
 
 # ---------------------------------------------------------------------------
@@ -350,12 +350,12 @@ class MoodleClientProtocol(Protocol):
     def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None: ...
 
     def create_module(
-        self,
-        course_id: CourseId,
-        section_num: int,
-        modname: str,
-        name: str,
-        settings: dict[str, Any] | None = None,
+            self,
+            course_id: CourseId,
+            section_num: int,
+            modname: str,
+            name: str,
+            settings: dict[str, Any] | None = None,
     ) -> Cmid: ...
 
     def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
