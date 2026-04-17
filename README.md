@@ -2,74 +2,66 @@
 
 Automate your Moodle LMS from the command line.
 
-![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Murhaf-Mo/workspace/actions/workflows/ci.yml/badge.svg)
+
+Courses, participants, assignments, grading, analytics, bulk content edits — all scriptable. Defaults to the public sandbox at [school.moodledemo.net](https://school.moodledemo.net) so you can try every command before pointing it at your own instance.
 
 ---
 
-## Installation
+## Install
 
-### Windows
-
-Paste in any **PowerShell** window — no Python required:
+**Windows** — PowerShell, no Python required:
 
 ```powershell
 irm https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.ps1 | iex
 ```
 
-### macOS
-
-Paste in **Terminal** — installs via Homebrew + pipx:
+**macOS** — Terminal, uses Homebrew + pipx:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.sh | bash
 ```
 
-> Both scripts download and install everything automatically.
-> Open a **new** terminal after install so PATH is refreshed.
+Open a **new** terminal after install so `PATH` is refreshed.
 
 ---
 
-## Authentication
+## Authenticate
 
-### 1. Set your Moodle URL
+Default URL is `https://school.moodledemo.net`. Skip step 1 to try the demo.
 
 ```bash
-moodlectl auth set-url https://moodle.yourschool.edu
+moodlectl auth set-url https://moodle.yourschool.edu   # optional — point at your own Moodle
+moodlectl auth login                                   # opens Chrome, saves session to .env
+moodlectl auth check                                   # verify session, show expiry
 ```
 
-This saves `MOODLE_BASE_URL` to your `.env` file. Only needed once.
+`auth login` skips the browser when the existing session is still valid.
 
-### 2. First login
-
-```powershell
-moodlectl auth login
-```
-
-Chrome opens automatically. Log in with your Moodle credentials — the window
-closes on its own once login is detected and your session is saved. Running it                                                                                                                          
-again when your session is still valid skips the browser entirely.  
-
-### Manual fallback (no browser)
-
-Create a `.env` file in your working directory:
+**Manual fallback** — create `.env` in your working directory:
 
 ```
-MOODLE_BASE_URL=https://moodle.yourschool.edu
-MOODLE_SESSION=<value>   # F12 → Application → Cookies → MoodleSession
-MOODLE_SESSKEY=<value>   # F12 → Network → any service.php request body
+MOODLE_BASE_URL=https://school.moodledemo.net
+MOODLE_SESSION=<MoodleSession cookie>   # F12 → Application → Cookies
+MOODLE_SESSKEY=<sesskey>                # F12 → Network → any service.php body
 ```
 
 ---
 
 ## Quick start
 
+Using the demo site, these all work out of the box:
+
 ```bash
-moodlectl summary                   # upcoming deadlines at a glance
-moodlectl auth check                # verify your session before long operations
-moodlectl courses list              # see your course IDs
-moodlectl assignments list          # see assignment cmids
-moodlectl assignments ungraded      # everything waiting to be graded
+moodlectl summary                          # upcoming deadlines overview
+moodlectl courses list                     # all enrolled courses + IDs
+moodlectl courses participants --course 51 # Moodle Mountain roster
+moodlectl grades show --course 69          # Mindful Course Creation grades
+moodlectl content list --course 51         # activities tree
+moodlectl analytics summary --course 69    # full visual report
 ```
+
+Demo course IDs used below: **51** Moodle Mountain, **69** Mindful Course Creation, **cmid 960** an `assign` module in course 51.
 
 ---
 
@@ -78,325 +70,171 @@ moodlectl assignments ungraded      # everything waiting to be graded
 ### auth
 
 ```bash
-# Set the Moodle base URL — do this once before logging in
-moodlectl auth set-url https://moodle.yourschool.edu
-
-# Auto-login: opens Chrome, saves session — skips browser if session is still valid
-moodlectl auth login
-
-# Verify session and show time remaining before expiry
-moodlectl auth check
+moodlectl auth set-url https://school.moodledemo.net   # change Moodle URL (once)
+moodlectl auth login                                   # browser login
+moodlectl auth check                                   # session validity + time left
 ```
 
 ### courses
 
 ```bash
-# List all your enrolled courses (shows course IDs)
-moodlectl courses list
+moodlectl courses list                                 # id, fullname, shortname
 
-# All participants across all courses
-moodlectl courses participants
+moodlectl courses participants                         # across all courses
+moodlectl courses participants --course 51             # one course (--course / --id)
+moodlectl courses participants --course 51 --role student
+moodlectl courses participants --course 51 --name "Frances"
 
-# Single course — --course and --id are aliases
-moodlectl courses participants --course 568
-moodlectl courses participants --id 568
-
-# Filter by role or name (partial match)
-moodlectl courses participants --course 568 --role student
-moodlectl courses participants --course 568 --name "Ali"
-
-# Students who haven't logged in for 14+ days (default) — all courses
-moodlectl courses inactive
-moodlectl courses inactive --days 7
-
-# Limit to a single course
-moodlectl courses inactive --course 568
-moodlectl courses inactive --course 568 --days 7
+moodlectl courses inactive                             # students idle 14+ days (default)
+moodlectl courses inactive --course 69 --days 30
 moodlectl courses inactive --output csv > inactive.csv
 ```
 
 ### grades
 
 ```bash
-# Summary: name + course total (default, all courses)
-moodlectl grades show
-moodlectl grades show --course 568
+moodlectl grades show                                  # all courses, course-total only
+moodlectl grades show --course 69                      # one course
+moodlectl grades show --course 69 --full               # every grade item as columns
+moodlectl grades show --course 69 --cards              # one panel per student
+moodlectl grades show --course 69 --name "Frances"     # filter by student
+moodlectl grades show --course 69 --output csv > grades.csv
 
-# Wide table: all grade items as columns
-moodlectl grades show --course 568 --full
-
-# Cards: one panel per student with all grade items
-moodlectl grades show --course 568 --cards
-
-# Filter to a specific student (partial name match)
-moodlectl grades show --course 568 --name "Aljawhara"
-moodlectl grades show --course 568 --name "Aljawhara" --cards
-
-# Export all grade columns to CSV (opens correctly in Excel)
-moodlectl grades show --course 568 --output csv > grades.csv
-
-# Grade statistics: mean, median, std dev, min, max for the course total
-moodlectl grades stats --course 568
+moodlectl grades stats --course 69                     # mean / median / stdev / min / max
 ```
 
 ### assignments
 
 ```bash
-# List all assignments across all courses (shows cmid, status: active / past)
-moodlectl assignments list
-moodlectl assignments list --status active
-moodlectl assignments list --course 568 --status past
+moodlectl assignments list                             # cmid + status (active / past)
+moodlectl assignments list --course 51 --status active
 
-# Assignments due in the next N days (default: 7), sorted most urgent first
-moodlectl assignments due-soon
-moodlectl assignments due-soon --days 3
-moodlectl assignments due-soon --course 568 --days 14
+moodlectl assignments due-soon                         # default: next 7 days
+moodlectl assignments due-soon --course 51 --days 14
 
-# Full details for one assignment (cmid, grade scale, due date, submission count)
-moodlectl assignments info --assignment 18002
+moodlectl assignments info --assignment 960            # scale, due date, counts
+moodlectl assignments submissions --assignment 960 --ungraded
 
-# List who submitted and which files — no downloads
-moodlectl assignments submissions --assignment 18002
-moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
+moodlectl assignments ungraded                         # everything waiting to grade
+moodlectl assignments ungraded --course 51 --output csv > ungraded.csv
 
-# Only show submissions that haven't been graded yet
-moodlectl assignments submissions --assignment 18002 --ungraded
+moodlectl assignments missing                          # non-submitters, all assignments
+moodlectl assignments missing --assignment 960 --course 51
+moodlectl assignments missing --status past            # only overdue
 
-# Show all submitted-but-ungraded work across every course
-moodlectl assignments ungraded
-moodlectl assignments ungraded --status past
-moodlectl assignments ungraded --course 590
-moodlectl assignments ungraded --output csv > ungraded.csv
-
-# Show students who have NOT submitted
-# Single assignment:
-moodlectl assignments missing --assignment 18002 --course 568
-# All assignments (bulk scan):
-moodlectl assignments missing
-moodlectl assignments missing --status past       # only overdue
-moodlectl assignments missing --status active     # only upcoming
-moodlectl assignments missing --course 568
-moodlectl assignments missing --output csv > missing.csv
-
-# Send a Moodle message to everyone who hasn't submitted a single assignment
-moodlectl assignments remind --assignment 18002 --course 568 --text "Reminder: please submit your work."
-moodlectl assignments remind --assignment 18002 --course 568 --text "..." --dry-run
-
-# Bulk remind across all courses and assignments
-moodlectl assignments remind-all --text "You have pending submissions."
+moodlectl assignments remind --assignment 960 --course 51 \
+  --text "Reminder: please submit." --dry-run          # preview DMs first
 moodlectl assignments remind-all --status active --text "Deadline approaching!" --dry-run
-moodlectl assignments remind-all --course 568 --text "..."
 
-# Download all submitted files (organised by course / active|past / assignment / student)
-moodlectl assignments download
-moodlectl assignments download --course 568 --status active
-moodlectl assignments download --course 568 --status past --out ./archive
-
-# Download only submissions that haven't been graded yet
-moodlectl assignments download --ungraded
-moodlectl assignments download --course 568 --ungraded
+moodlectl assignments download                         # all submitted files
+moodlectl assignments download --course 51 --status active --out ./archive
+moodlectl assignments download --ungraded              # only files still to grade
 ```
 
-Downloaded files are organised as:
-
-```
-assignments/
-  COURSE_SHORT/
-    active/
-      Assignment_Name/
-        _brief/               ← instructor-attached brief files
-        Student_Name_123/
-          submission.pdf
-    past/
-      Assignment_Name/
-        Student_Name_456/
-          report.docx
-```
+Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land in a sibling `_brief/` folder.
 
 ### grading
 
 ```bash
-# Check the current grade and feedback before overwriting
-moodlectl grading show --assignment 18002 --student 1557
+moodlectl grading show   --assignment 960 --student 48          # current grade + feedback
+moodlectl grading submit --assignment 960 --student 48 --grade 10
+moodlectl grading submit -a 960 -s 48 -g 8.5 --feedback "Good work overall."
+moodlectl grading submit -a 960 -s 48 -g 10 --notify            # email the student
 
-# Submit a grade
-moodlectl grading submit --assignment 18002 --student 1557 --grade 10
+# CSV: user_id,grade,feedback  (feedback column optional)
+moodlectl grading batch --assignment 960 --file grades.csv --dry-run
+moodlectl grading batch --assignment 960 --file grades.csv
+moodlectl grading batch -a 960 -f grades.csv --output csv > results.csv
 
-# With written feedback
-moodlectl grading submit -a 18002 -s 1557 -g 8.5 --feedback "Good work overall."
-
-# Notify the student by email after grading
-moodlectl grading submit -a 18002 -s 1557 -g 10 --notify
-
-# Grade all students from a CSV file
-# CSV format: user_id,grade,feedback (header required; feedback column is optional)
-moodlectl grading batch --assignment 18002 --file grades.csv --dry-run   # preview first
-moodlectl grading batch --assignment 18002 --file grades.csv
-moodlectl grading batch -a 18002 -f grades.csv --output csv > results.csv
-
-# Guided grading: work through all ungraded students interactively
-moodlectl grading next --assignment 18002
-moodlectl grading next --assignment 18002 --notify
+moodlectl grading next --assignment 960                         # interactive, ungraded only
+moodlectl grading next --assignment 960 --notify
 ```
 
-ID reference:
-
-- `--assignment` is the cmid from `moodlectl assignments list`
-- `--student` is the user ID from `moodlectl courses participants`
-- `--grade` must be within the assignment's configured grade scale (shown as "Grade out of X")
+- `--assignment` → cmid from `assignments list`
+- `--student` → user id from `courses participants`
+- `--grade` must fit the assignment's scale (see `Grade out of X`)
 
 ### analytics
 
-> Analytics are bundled in the installer. No extra install needed.
-
-Charts render directly in your terminal by default. Pass `--save <file>` to write a PNG or PDF instead.
+Charts render in-terminal. Pass `--save file.png|pdf` to export.
 
 ```bash
-# Grade distribution histogram — spot bimodal curves, decide whether to norm-reference
-moodlectl analytics grades-dist --course 568
-moodlectl analytics grades-dist --course 568 --save dist.png
-moodlectl analytics grades-dist --course 568 --save dist.pdf --fmt pdf
-
-# Filter to a specific grade item instead of Course Total
-moodlectl analytics grades-dist --course 568 --item "Midterm Exam"
-
-# Box plot — compare grade spread across assignments; find the hardest one
-moodlectl analytics grades-boxplot --course 568
-moodlectl analytics grades-boxplot --course 568 --save boxplot.png
-
-# Letter grade bar chart (A / B / C / D / F)
-# grade-max is auto-detected from the report — no flag needed for non-100 scales
-moodlectl analytics letter-grades --course 568
-moodlectl analytics letter-grades --course 568 --save letters.png
-
-# Submission status — submitted / ungraded / missing per assignment
-moodlectl analytics submission-status --course 568
-moodlectl analytics submission-status --course 568 --assignment-id 18002  # single assignment
-moodlectl analytics submission-status --course 568 --save status.png
-
-# Grade progression — mean & median line chart across assignments in grade-report order
-moodlectl analytics grade-progression --course 568
-moodlectl analytics grade-progression --course 568 --save progress.png
-
-# At-risk students — below threshold AND/OR have missing/ungraded work
-# --threshold is a percentage of the course max (default 60%)
-# action column: "remind" | "grade" | "both"
-moodlectl analytics at-risk --course 568
-moodlectl analytics at-risk --course 568 --threshold 70
-
-# Full report — all charts in one command; optionally save all as PNGs
-moodlectl analytics summary --course 568
-moodlectl analytics summary --course 568 --save-dir ./reports/
+moodlectl analytics grades-dist      --course 69                     # histogram
+moodlectl analytics grades-dist      --course 69 --item "Midterm Exam"
+moodlectl analytics grades-boxplot   --course 69                     # per-assignment spread
+moodlectl analytics letter-grades    --course 69                     # A/B/C/D/F bars
+moodlectl analytics submission-status --course 69                    # submitted/ungraded/missing
+moodlectl analytics grade-progression --course 69                    # mean & median over time
+moodlectl analytics at-risk          --course 69 --threshold 70      # below threshold + gaps
+moodlectl analytics summary          --course 69 --save-dir ./reports/
 ```
 
-`--save-dir` layout:
-
-```
-reports/
-  1_grade_dist.png
-  2_letter_grades.png
-  3_submission_status.png
-  4_grade_progression.png
-```
+`--save-dir` writes `1_grade_dist.png`, `2_letter_grades.png`, `3_submission_status.png`, `4_grade_progression.png`.
 
 ### content
 
-Manage course sections and modules (any type: resource, url, page, forum, quiz, assign, label, …).
+Manage sections and modules of any type (resource, url, page, forum, quiz, assign, label, …).
 
 ```bash
-# List all sections and modules in a course (tree view)
-moodlectl content list --course 581
+moodlectl content list   --course 51                     # tree view
+moodlectl content list   --course 51 --section 4         # one section (0-indexed)
+moodlectl content list   --course 51 --type assign       # filter by module type
+moodlectl content list   --course 51 --no-hidden
+moodlectl content list   --course 51 --output json
 
-# Filter to one section by number (0-indexed)
-moodlectl content list --course 581 --section 2
+moodlectl content show   --course 51 --cmid 960          # one module's details
+moodlectl content hide   --course 51 --cmid 960
+moodlectl content unhide --course 51 --cmid 960
+moodlectl content rename --course 51 --cmid 960 --name "Alpine Night — Kit List"
+moodlectl content delete --course 51 --cmid 960 --force  # → Moodle recycle bin
 
-# Filter by module type
-moodlectl content list --course 581 --type resource
+moodlectl content section hide   --course 51 --section 1
+moodlectl content section unhide --course 51 --section 1
+moodlectl content section rename --course 51 --section 1 --name "Week 1: Introduction"
 
-# Exclude hidden items
-moodlectl content list --course 581 --no-hidden
-
-# Machine-readable output
-moodlectl content list --course 581 --output json
-
-# Show full details for one module (name, type, visibility, URL)
-moodlectl content show --course 581 --cmid 18346
-
-# Hide / unhide a module
-moodlectl content hide   --course 581 --cmid 18346
-moodlectl content unhide --course 581 --cmid 18346
-
-# Rename a module
-moodlectl content rename --course 581 --cmid 18346 --name "Syllabus"
-
-# Delete a module (goes to Moodle recycle bin — recoverable)
-moodlectl content delete --course 581 --cmid 18346 --force
-
-# Hide / unhide an entire section
-moodlectl content section hide   --course 581 --section 1
-moodlectl content section unhide --course 581 --section 1
-
-# Rename a section
-moodlectl content section rename --course 581 --section 1 --name "Week 1: Introduction"
-
-# Inspect all editable settings for a module
-moodlectl content settings --course 581 --cmid 18867
-
-# Change a single setting on a module
-moodlectl content set --course 581 --cmid 18867 --field due_date --value "2026-05-01 23:59"
-moodlectl content set --course 581 --cmid 18867 --field max_grade --value 20
-moodlectl content set --course 581 --cmid 18867 --field description --value "<p>New description.</p>"
+moodlectl content settings --course 51 --cmid 960        # all editable fields
+moodlectl content set      --course 51 --cmid 960 --field due_date   --value "2026-05-01 23:59"
+moodlectl content set      --course 51 --cmid 960 --field max_grade  --value 20
+moodlectl content set      --course 51 --cmid 960 --field description --value "<p>Updated.</p>"
 ```
 
-**Supported settings by module type:**
+**Editable fields by type:**
 
-| Module type | Available fields |
-|-------------|-----------------|
-| `assign` | `description`, `due_date`, `available_from`, `cut_off`, `max_grade`, `grade_pass` |
-| `quiz` | `description`, `due_date`, `available_from`, `cut_off`, `time_limit_mins`, `attempts_allowed`, `grade_method` |
-| `forum` | `description`, `subscription_mode`, `max_attachments` |
-| All others | `description` |
+| Type       | Fields |
+|------------|--------|
+| `assign`   | `description`, `due_date`, `available_from`, `cut_off`, `max_grade`, `grade_pass` |
+| `quiz`     | `description`, `due_date`, `available_from`, `cut_off`, `time_limit_mins`, `attempts_allowed`, `grade_method` |
+| `forum`    | `description`, `subscription_mode`, `max_attachments` |
+| *(others)* | `description` |
 
-Dates use `"YYYY-MM-DD HH:MM"` format (e.g. `"2026-05-01 23:59"`).
+Dates use `"YYYY-MM-DD HH:MM"`.
 
-**YAML bulk-edit workflow** — export the full course structure including all activity settings, edit it in any text editor, then push changes back:
+**Bulk edit via YAML** — export the whole course, edit in any text editor, push back:
 
 ```bash
-# Export to file (includes all settings for every module)
-moodlectl content pull --course 581 -o course.yaml
-
-# Preview what will change (dry run — nothing applied)
-moodlectl content push course.yaml --dry-run
-
-# Apply changes (prompts for confirmation)
-moodlectl content push course.yaml
-
-# Apply without prompt
-moodlectl content push course.yaml --yes
+moodlectl content pull --course 51 -o course.yaml
+moodlectl content push course.yaml --dry-run     # preview the diff
+moodlectl content push course.yaml               # prompts to confirm
+moodlectl content push course.yaml --yes         # apply without prompt
 ```
 
-The YAML includes a `settings:` block per module with all supported fields for that type (description, due dates, grade limits, etc.). Edit any of these and push — only changed values are sent to Moodle.
-Module order within a section and section order can be changed by reordering entries in the YAML — push detects and applies the moves.
-Modules absent from the YAML are never auto-deleted; push warns about them instead.
+Each module gets a `settings:` block with every editable field for its type. Only changed values are pushed. Reorder entries in the YAML to reorder modules/sections. Modules removed from the YAML are flagged but never auto-deleted.
 
 ### messages
 
 ```bash
-# Send a direct message (use student ID from `courses participants`)
-moodlectl messages send --to 1557 --text "Your assignment is due tomorrow."
-
-# Delete (unsend) a message
+moodlectl messages send --to 48 --text "Your assignment is due tomorrow."
 moodlectl messages delete --id 98765
 ```
 
 ### Output formats
 
-All commands support `--output` / `-o`:
+All commands accept `--output` / `-o`:
 
-```bash
---output table    # default — pretty table in the terminal
---output json     # machine-readable JSON array
---output csv      # UTF-8 CSV, opens correctly in Excel
+```
+table   # default, pretty terminal table
+json    # machine-readable array
+csv     # UTF-8 with BOM, opens cleanly in Excel
 ```
 
 ---
@@ -414,47 +252,42 @@ moodlectl assignments due-soon --days 3
 **Grading session:**
 
 ```bash
-moodlectl assignments ungraded --course 568          # see what needs grading
-moodlectl grading next --assignment 18002            # grade interactively
-# or
-moodlectl grading batch --assignment 18002 --file grades.csv --dry-run
-moodlectl grading batch --assignment 18002 --file grades.csv
+moodlectl assignments ungraded --course 51
+moodlectl grading next --assignment 960                 # or:
+moodlectl grading batch --assignment 960 --file grades.csv --dry-run
+moodlectl grading batch --assignment 960 --file grades.csv
 ```
 
 **Chase late submissions:**
 
 ```bash
-moodlectl assignments missing --assignment 18002 --course 568
-moodlectl assignments remind --assignment 18002 --course 568 --text "Deadline is Friday."
+moodlectl assignments missing --assignment 960 --course 51
+moodlectl assignments remind  --assignment 960 --course 51 --text "Deadline is Friday."
 ```
 
-**End of term export:**
+**End-of-term export:**
 
 ```bash
-moodlectl grades show --course 568 --output csv > grades.csv
+moodlectl grades show --course 69 --output csv > grades.csv
 moodlectl assignments missing --output csv > missing.csv
-moodlectl grades stats --course 568
+moodlectl grades stats --course 69
 ```
 
-**Bulk course content edit:**
+**Bulk content edit:**
 
 ```bash
-moodlectl content pull --course 581 -o course.yaml   # export (includes all settings)
-# edit course.yaml: rename, hide/unhide, reorder, change due dates, grades, etc.
-moodlectl content push course.yaml --dry-run          # preview diff
-moodlectl content push course.yaml --yes              # apply
+moodlectl content pull --course 51 -o course.yaml
+# edit: rename, hide/unhide, reorder, change due dates, grade limits, …
+moodlectl content push course.yaml --dry-run
+moodlectl content push course.yaml --yes
 ```
 
-**Course analytics report:**
+**Analytics report:**
 
 ```bash
-# Full visual report saved to disk — share with department or keep for records
-moodlectl analytics summary --course 568 --save-dir ./reports/
-
-# Or run individual charts as needed
-moodlectl analytics at-risk --course 568               # who needs attention right now
-moodlectl analytics letter-grades --course 568          # A/B/C/D/F breakdown
-moodlectl analytics grade-progression --course 568      # is the cohort improving?
+moodlectl analytics summary       --course 69 --save-dir ./reports/
+moodlectl analytics at-risk       --course 69
+moodlectl analytics letter-grades --course 69
 ```
 
 ---
@@ -466,9 +299,8 @@ git clone https://github.com/Murhaf-Mo/moodlectl
 cd moodlectl
 pip install -e ".[dev,analytics,browser]"
 
-# Copy credentials
-cp .env.example .env   # then fill in MOODLE_SESSION and MOODLE_SESSKEY
+cp .env.example .env   # fill in MOODLE_SESSION and MOODLE_SESSKEY
 
-pytest                 # run tests
-ruff check .           # lint
+pytest
+ruff check .
 ```

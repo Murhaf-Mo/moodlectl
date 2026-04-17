@@ -221,7 +221,7 @@ def login(
         )
         raise typer.Exit(1)
 
-    base_url = os.environ.get("MOODLE_BASE_URL", "https://moodle.example.com")
+    base_url = os.environ.get("MOODLE_BASE_URL", "https://school.moodledemo.net")
     env_path = Path(".env")
 
     # ── Pre-check: skip browser if session is already valid ───────────────────
@@ -354,16 +354,17 @@ def check_session() -> None:
 def set_url(
     url: str = typer.Argument(
         ...,
-        help="Base URL of the Moodle instance (e.g. https://moodle.example.com).",
+        help="Base URL of the Moodle instance (e.g. https://school.moodledemo.net).",
     ),
 ) -> None:
     """Set the Moodle base URL and save it to .env.
 
-    The default URL is https://moodle.example.com. Use this command to point
-    moodlectl at a different Moodle instance.
+    Defaults to https://school.moodledemo.net (the public Moodle sandbox).
+    Use this command to point moodlectl at your own Moodle instance.
 
     Examples:
-      moodlectl auth set-url https://moodle.example.com
+      moodlectl auth set-url https://school.moodledemo.net
+      moodlectl auth set-url https://moodle.yourschool.edu
     """
     parsed = urlparse(url)
     url = f"{parsed.scheme}://{parsed.netloc}"

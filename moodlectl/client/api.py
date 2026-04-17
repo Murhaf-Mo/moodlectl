@@ -414,8 +414,6 @@ def _settings_to_form(modname: str, settings: dict[str, Any]) -> dict[str, str]:
                 tag_list = value if isinstance(value, list) else ([value] if value else [])
                 for i, tag in enumerate(tag_list):
                     form_changes[f"{field}[{i}]"] = str(tag)
-                if not tag_list:
-                    form_changes[f"{field}[]"] = ""
             else:
                 form_changes[field] = str(value) if value is not None else ""
         else:
@@ -440,8 +438,6 @@ def _course_settings_to_form(settings: dict[str, Any]) -> dict[str, str]:
                 tag_list = value if isinstance(value, list) else ([value] if value else [])
                 for i, tag in enumerate(tag_list):
                     form_changes[f"{field}[{i}]"] = str(tag)
-                if not tag_list:
-                    form_changes[f"{field}[]"] = ""
             else:
                 form_changes[field] = str(value) if value is not None else ""
         else:
@@ -531,6 +527,9 @@ class MoodleAPI(MoodleClientBase):
                 continue
             tag = el.name
             input_type = _attr(el, "type", "text").lower()
+            if input_type == "submit":
+                # Drop all submit buttons; we re-add the one we want below.
+                continue
             if tag == "select":
                 if el.get("multiple") is not None:
                     base = name.rstrip("[]")
@@ -538,8 +537,11 @@ class MoodleAPI(MoodleClientBase):
                     if selected_opts:
                         for i, opt in enumerate(selected_opts):
                             data[f"{base}[{i}]"] = _attr(opt, "value")
-                    else:
-                        data[f"{base}[]"] = ""
+                    # For empty multiselects, don't post `base[] = ""` — PHP would
+                    # parse it as `[""]` and Moodle's get_in_or_equal() chokes on
+                    # the resulting array. The hidden sentinel (e.g. `tags =
+                    # _qf__force_multiselect_submission`) already covers the
+                    # "empty selection submitted" case.
                 else:
                     selected = el.find("option", selected=True)
                     data[name] = _attr(selected, "value") if selected else ""
@@ -553,8 +555,6 @@ class MoodleAPI(MoodleClientBase):
                     data[name] = _attr(el, "value")
             else:
                 data[name] = _attr(el, "value")
-        data.pop("saveanddisplay", None)
-        data.pop("cancel", None)
         data["saveanddisplay"] = "Save and display"
         return data
 
@@ -578,10 +578,26 @@ class MoodleAPI(MoodleClientBase):
         if resp.status_code == 404:
             raise RuntimeError(f"course/edit.php POST returned 404 for course {course_id}")
         if "edit.php" in resp.url and resp.status_code == 200:
+            import tempfile
             soup = BeautifulSoup(resp.text, "html.parser")
-            error_el = soup.find(class_="alert-danger") or soup.find(id="id_error_fullname")
-            msg = error_el.get_text(strip=True) if error_el else "Unknown validation error"
-            raise RuntimeError(f"Moodle rejected course settings for {course_id}: {msg}")
+            msg = ""
+            for candidate in [
+                *soup.find_all(id=re.compile(r"^id_error_")),
+                *soup.find_all(class_="formerror"),
+                *soup.find_all(class_="alert-danger"),
+                *soup.find_all(class_="error"),
+            ]:
+                text = candidate.get_text(separator=" ", strip=True)
+                if text:
+                    msg = text
+                    break
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".html", prefix=f"moodlectl_err_course{course_id}_")
+            tmp.write(resp.text.encode("utf-8", errors="replace"))
+            tmp.close()
+            raise RuntimeError(
+                f"Moodle rejected course settings for {course_id}: {msg or 'unknown error'}\n"
+                f"Full response saved to: {tmp.name}"
+            )
 
     def get_courses(self, classification: str = "all", sort: str = "fullname") -> list[Course]:
         raw = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
@@ -1224,17 +1240,24 @@ class MoodleAPI(MoodleClientBase):
                 continue
             tag = el.name
             input_type = _attr(el, "type", "text").lower()
+            if input_type == "submit":
+                # Drop all submit buttons; we re-add the one we want below.
+                # Extra submit buttons (e.g. a format-specific update button) cause
+                # Moodle to silently re-render the form instead of saving.
+                continue
 
             if tag == "select":
                 if el.get("multiple") is not None:
-                    # Multi-select (e.g. tags[]): store each selected option as indexed key
+                    # Multi-select (e.g. tags[]): store each selected option as indexed key.
+                    # For empty selections, do NOT post `base[] = ""` — PHP parses it
+                    # as `[""]` and Moodle's get_in_or_equal() fails. The hidden
+                    # sentinel input (e.g. `tags = _qf__force_multiselect_submission`)
+                    # already tells Moodle an empty selection was submitted.
                     selected_opts = el.find_all("option", selected=True)
                     base = name.rstrip("[]")
                     if selected_opts:
                         for i, opt in enumerate(selected_opts):
                             data[f"{base}[{i}]"] = _attr(opt, "value")
-                    else:
-                        data[f"{base}[]"] = ""
                 else:
                     selected = el.find("option", selected=True)
                     data[name] = _attr(selected, "value") if selected else ""
@@ -1252,8 +1275,6 @@ class MoodleAPI(MoodleClientBase):
 
         # Always trigger save-and-return so Moodle redirects back to the course page on success.
         data["submitbutton2"] = "Save and return to course"
-        data.pop("submitbutton", None)
-        data.pop("cancel", None)
         return data
 
     def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None:
