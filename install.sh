@@ -46,10 +46,14 @@ fi
 
 # ── 4. moodlectl ─────────────────────────────────────────────────────────────
 echo "Installing moodlectl..."
-pipx install "git+https://github.com/$REPO"
+if pipx list | grep -q "moodlectl"; then
+    pipx install --force "git+https://github.com/$REPO"
+else
+    pipx install "git+https://github.com/$REPO"
+fi
 
 echo "Installing browser support (for auth login)..."
-pipx inject moodlectl selenium webdriver-manager
+pipx inject --force moodlectl selenium webdriver-manager
 
 echo ""
 echo "moodlectl installed successfully!"
