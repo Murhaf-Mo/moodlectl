@@ -1,7 +1,7 @@
 # PyInstaller spec for moodlectl
 # Build: pyinstaller moodlectl.spec
 # Output: dist/moodlectl/ (onedir — fast startup, fewer antivirus issues than onefile)
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 block_cipher = None
 
@@ -21,16 +21,6 @@ hiddenimports = [
     "urllib3.contrib",
     # beautifulsoup4
     "bs4.builder._htmlparser",
-    # selenium
-    "selenium.webdriver.chrome.service",
-    "selenium.webdriver.chrome.options",
-    "selenium.webdriver.support.ui",
-    "selenium.webdriver.support.expected_conditions",
-    "selenium.webdriver.common.by",
-    # webdriver-manager (downloads ChromeDriver at runtime to ~/.wdm/)
-    "webdriver_manager.chrome",
-    "webdriver_manager.core.driver_cache",
-    "webdriver_manager.core.config",
     # matplotlib
     "matplotlib.backends.backend_agg",
     "matplotlib.backends.backend_pdf",
@@ -40,6 +30,13 @@ hiddenimports = [
     "anyio",
     "anyio._backends._asyncio",
 ]
+
+# Bundle every submodule of selenium and webdriver_manager. The previous
+# explicit list missed selenium.webdriver.chrome.webdriver, which is imported
+# lazily by selenium.webdriver.Chrome(...) and caused ModuleNotFoundError at
+# runtime in the packaged binary.
+hiddenimports += collect_submodules("selenium")
+hiddenimports += collect_submodules("webdriver_manager")
 
 a = Analysis(
     ["moodlectl/__main__.py"],
