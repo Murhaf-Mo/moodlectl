@@ -31,7 +31,7 @@ def _check_session_valid() -> tuple[bool, int]:
         client = MoodleClient.from_config(cfg)
         courses = client.get_courses()
         return True, len(courses)
-    except Exception:
+    except BaseException:
         return False, 0
 
 
