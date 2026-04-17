@@ -4,6 +4,7 @@ from typing import Optional, cast
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 from moodlectl.client import MoodleClient
 from moodlectl.config import Config
@@ -11,8 +12,65 @@ from moodlectl.features import courses as courses_feature
 from moodlectl.output.formatters import print_table
 from moodlectl.types import CourseId, OutputFmt
 
-app = typer.Typer(help="Course commands — list courses, view participants, and find inactive students.")
-console = Console()
+app = typer.Typer(help="Course commands — list, settings, participants, and inactive students.")
+console = Console(legacy_windows=False)
+
+_COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`).")
+
+
+@app.command("settings")
+def course_settings(
+    course: int = _COURSE_OPT,
+) -> None:
+    """Show all editable settings for a course.
+
+    Displays every setting that can be changed via `courses set`.
+    Use this to inspect the current configuration before editing.
+
+    Examples:
+      moodlectl courses settings --course 581
+    """
+    client = MoodleClient.from_config(Config.load())
+    try:
+        settings = courses_feature.get_course_settings(client, CourseId(course))
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+
+    tbl = Table(title=f"Settings for course {course}", show_header=True, header_style="bold")
+    tbl.add_column("Field", style="bold cyan")
+    tbl.add_column("Value")
+    for key, val in settings.items():
+        display = str(val) if val not in ("", [], None) else "[dim](not set)[/dim]"
+        tbl.add_row(key, display)
+    console.print(tbl)
+
+
+@app.command("set")
+def set_course_setting(
+    course: int = _COURSE_OPT,
+    field: str = typer.Option(..., "--field", "-f", help="Setting name (from `courses settings`)."),
+    value: str = typer.Option(..., "--value", "-v", help="New value."),
+) -> None:
+    """Change a single setting on a course.
+
+    Use `courses settings` to see available field names and current values.
+    Dates use 'YYYY-MM-DD HH:MM' format.
+
+    Examples:
+      moodlectl courses set --course 581 --field fullname --value "New Course Name"
+      moodlectl courses set --course 581 --field visible --value 1
+      moodlectl courses set --course 581 --field end_date --value "2027-01-15 00:00"
+      moodlectl courses set --course 581 --field enable_completion --value 1
+      moodlectl courses set --course 581 --field tags --value "tag1,tag2"
+    """
+    client = MoodleClient.from_config(Config.load())
+    try:
+        courses_feature.set_course_setting(client, CourseId(course), field, value)
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Course {course} field {field!r} updated.[/green]")
 
 
 @app.command("list")

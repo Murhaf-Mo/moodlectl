@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import cast
+from datetime import datetime
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from bs4 import BeautifulSoup, Tag
@@ -14,10 +15,13 @@ from moodlectl.types import (
     Cmid,
     Course,
     CourseId,
+    CourseModule,
+    CourseSection,
     FileRef,
     FormFields,
     GradeReport,
     Participant,
+    SectionId,
     Submission,
     UserId,
 )
@@ -49,6 +53,429 @@ def _classes(tag: Tag) -> list[str]:
     return []
 
 
+# ── Module settings helpers ───────────────────────────────────────────────────
+
+def _parse_datetime(form: dict[str, str], prefix: str, always_on: bool = False) -> str:
+    """Parse a Moodle date-group (prefix[day/month/year/hour/minute]) to 'YYYY-MM-DD HH:MM'.
+
+    always_on=True  — no [enabled] checkbox (e.g. course startdate); parse if [day] present.
+    always_on=False — require [enabled] to be present and truthy (module dates, course enddate).
+                      An absent [enabled] key means the checkbox is unchecked → return "".
+    """
+    if always_on:
+        if f"{prefix}[day]" not in form:
+            return ""
+    else:
+        if not form.get(f"{prefix}[enabled]", ""):
+            return ""
+    try:
+        day   = int(form.get(f"{prefix}[day]",    "1"))
+        month = int(form.get(f"{prefix}[month]",  "1"))
+        year  = int(form.get(f"{prefix}[year]",   "2000"))
+        hour  = int(form.get(f"{prefix}[hour]",   "0"))
+        minute = int(form.get(f"{prefix}[minute]","0"))
+        return datetime(year, month, day, hour, minute).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _datetime_to_form(value: str, prefix: str) -> dict[str, str]:
+    """Convert 'YYYY-MM-DD HH:MM' back to Moodle date-group form fields."""
+    try:
+        dt = datetime.strptime(value.strip(), "%Y-%m-%d %H:%M")
+    except ValueError:
+        raise ValueError(f"Date must be 'YYYY-MM-DD HH:MM', got {value!r}")
+    return {
+        f"{prefix}[enabled]": "1",
+        f"{prefix}[day]":     str(dt.day),
+        f"{prefix}[month]":   str(dt.month),
+        f"{prefix}[year]":    str(dt.year),
+        f"{prefix}[hour]":    str(dt.hour),
+        f"{prefix}[minute]":  str(dt.minute),
+    }
+
+
+_DATE_RE = re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$')
+
+
+def _parse_duration_mins(form: dict[str, str], prefix: str) -> int:
+    """Parse a Moodle compound duration field (prefix[number] + prefix[timeunit]) to total minutes."""
+    try:
+        number   = int(form.get(f"{prefix}[number]",   "0"))
+        timeunit = int(form.get(f"{prefix}[timeunit]", "60"))
+        return number * timeunit // 60
+    except (ValueError, TypeError):
+        return 0
+
+
+def _duration_mins_to_form(mins: int, prefix: str) -> dict[str, str]:
+    """Convert total minutes back to Moodle compound duration form fields (stored as minutes)."""
+    return {
+        f"{prefix}[number]":   str(int(mins)),
+        f"{prefix}[timeunit]": "60",
+    }
+
+
+# ── Comprehensive curated settings schema ─────────────────────────────────────
+#
+# type_hint: "str" | "int" | "float" | "datetime" | "duration_mins" | "tags"
+#   datetime      — "YYYY-MM-DD HH:MM"; uses prefix[enabled/day/...] form group
+#   duration_mins — int total minutes; uses prefix[number]+prefix[timeunit] form fields
+#   tags          — list of strings; form fields are tags[0], tags[1], ...
+#   int           — defaults to 0 when absent (handles unchecked checkboxes/radios)
+#
+# COMMON fields appear on every module type.
+# Type-specific schemas are merged with COMMON when building settings.
+#
+_COMMON_SCHEMA: dict[str, tuple[str, str]] = {
+    # General
+    "id_number":              ("cmidnumber",          "str"),
+    "show_description":       ("showdescription",     "int"),
+    "force_language":         ("lang",                "str"),
+    # Groups
+    "group_mode":             ("groupmode",           "int"),
+    "grouping":               ("groupingid",          "int"),
+    # Tags
+    "tags":                   ("tags",                "tags"),
+    # Competencies
+    "competency_rule":        ("competency_rule",     "int"),
+    # Completion tracking
+    "completion":             ("completion",          "int"),   # 0=none 1=manual 2=auto
+    "completion_on_view":     ("completionview",      "int"),
+    "completion_on_grade":    ("completionusegrade",  "int"),
+    "completion_pass_grade":  ("completionpassgrade", "int"),
+    "completion_expected":    ("completionexpected",  "datetime"),
+}
+
+_SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
+    "assign": {
+        **_COMMON_SCHEMA,
+        "description":              ("introeditor[text]",                    "str"),
+        "due_date":                 ("duedate",                              "datetime"),
+        "available_from":           ("allowsubmissionsfromdate",             "datetime"),
+        "cut_off":                  ("cutoffdate",                           "datetime"),
+        "grading_due":              ("gradingduedate",                       "datetime"),
+        "max_grade":                ("grade[modgrade_point]",                "float"),
+        "grade_pass":               ("gradepass",                            "float"),
+        "grade_category":           ("gradecat",                             "int"),
+        "submission_drafts":        ("submissiondrafts",                     "int"),
+        "require_statement":        ("requiresubmissionstatement",           "int"),
+        "online_text_enabled":      ("assignsubmission_onlinetext_enabled",  "int"),
+        "file_enabled":             ("assignsubmission_file_enabled",        "int"),
+        "max_files":                ("assignsubmission_file_maxfiles",       "int"),
+        "max_file_size":            ("assignsubmission_file_maxsizebytes",   "int"),
+        "allowed_file_types":       ("assignsubmission_file_filetypes[filetypes]", "str"),
+        "inline_comments":          ("assignfeedback_comments_commentinline","int"),
+        "notify_graders":           ("sendnotifications",                    "int"),
+        "notify_graders_late":      ("sendlatenotifications",                "int"),
+        "notify_students":          ("sendstudentnotifications",             "int"),
+        "blind_marking":            ("blindmarking",                         "int"),
+        "hide_grader":              ("hidegrader",                           "int"),
+        "marking_workflow":         ("markingworkflow",                      "int"),
+        "marking_allocation":       ("markingallocation",                    "int"),
+        "team_submission":          ("teamsubmission",                       "int"),
+        "reopen_attempts":          ("attemptreopenmethod",                  "str"),
+        "max_attempts":             ("maxattempts",                          "int"),
+        "completion_on_submit":     ("completionsubmit",                     "int"),
+        "grading_method":           ("advancedgradingmethod_submissions",    "str"),
+    },
+    "quiz": {
+        **_COMMON_SCHEMA,
+        # General
+        "description":                  ("introeditor[text]",    "str"),
+        # Timing
+        "available_from":               ("timeopen",             "datetime"),
+        "due_date":                     ("timeclose",            "datetime"),
+        "time_limit_mins":              ("timelimit",            "duration_mins"),
+        "when_time_expires":            ("overduehandling",      "str"),   # autosubmit|graceperiod|autoabandon
+        "grace_period_mins":            ("graceperiod",          "duration_mins"),
+        # Grade
+        "max_grade":                    ("grade",                "float"),
+        "grade_category":               ("gradecat",             "int"),
+        "grade_to_pass":                ("gradepass",            "float"),
+        "grade_method":                 ("grademethod",          "str"),   # 1=highest 2=avg 3=first 4=last
+        "attempts_allowed":             ("attempts",             "int"),
+        "delay_1_mins":                 ("delay1",               "duration_mins"),
+        "delay_2_mins":                 ("delay2",               "duration_mins"),
+        # Layout
+        "questions_per_page":           ("questionsperpage",     "int"),
+        "navigation_method":            ("navmethod",            "str"),   # free|sequential
+        # Question behaviour
+        "shuffle_answers":              ("shuffleanswers",       "int"),
+        "review_behaviour":             ("preferredbehaviour",   "str"),   # deferredfeedback|immediatefeedback|etc
+        "redo_questions":               ("canredoquestions",     "int"),
+        # Review options — during attempt
+        "review_attempt_during":        ("attemptduring",        "int"),
+        # Review options — after closing
+        "review_attempt_closed":        ("attemptclosed",        "int"),
+        "review_attempt_on_last":       ("attemptonlast",        "int"),
+        "review_correctness_closed":    ("correctnessclosed",    "int"),
+        "review_marks_closed":          ("marksclosed",          "int"),
+        "review_max_marks_closed":      ("maxmarksclosed",       "int"),
+        "review_specific_feedback_closed": ("specificfeedbackclosed", "int"),
+        "review_general_feedback_closed":  ("generalfeedbackclosed",  "int"),
+        "review_right_answer_closed":   ("rightanswerclosed",    "int"),
+        "review_overall_feedback_closed":  ("overallfeedbackclosed",  "int"),
+        # Appearance
+        "show_user_picture":            ("showuserpicture",      "int"),
+        "decimal_places":               ("decimalpoints",        "int"),
+        "question_decimal_places":      ("questiondecimalpoints","int"),
+        "show_blocks":                  ("showblocks",           "int"),
+        # Security / restrictions
+        "password":                     ("quizpassword",         "str"),
+        "network_address":              ("subnet",               "str"),
+        "browser_security":             ("browsersecurity",      "str"),
+        "start_time_limit_mins":        ("startlimit",           "duration_mins"),
+        # Safe Exam Browser
+        "seb_require":                  ("seb_requiresafeexambrowser", "str"),
+        "seb_show_download_link":       ("seb_showsebdownloadlink",    "int"),
+        "seb_allow_quit":               ("seb_allowuserquitseb",       "int"),
+        "seb_confirm_quit":             ("seb_userconfirmquit",        "int"),
+        "seb_quit_password":            ("seb_quitpassword",           "str"),
+        "seb_allow_reload":             ("seb_allowreloadinexam",      "int"),
+        "seb_show_taskbar":             ("seb_showsebtaskbar",         "int"),
+        "seb_show_reload_button":       ("seb_showreloadbutton",       "int"),
+        "seb_show_time":                ("seb_showtime",               "int"),
+        "seb_show_keyboard":            ("seb_showkeyboardlayout",     "int"),
+        "seb_show_wifi":                ("seb_showwificontrol",        "int"),
+        "seb_enable_audio":             ("seb_enableaudiocontrol",     "int"),
+        "seb_mute_on_startup":          ("seb_muteonstartup",          "int"),
+        "seb_allow_spell_check":        ("seb_allowspellchecking",     "int"),
+        "seb_url_filtering":            ("seb_activateurlfiltering",   "int"),
+        # Completion (quiz-specific extras beyond _COMMON_SCHEMA)
+        "completion_min_attempts":      ("completionminattempts",      "int"),
+        "completion_attempts_exhausted":("completionattemptsexhausted","int"),
+    },
+    "forum": {
+        **_COMMON_SCHEMA,
+        "description":              ("introeditor[text]",  "str"),
+        "forum_type":               ("type",               "str"),
+        "max_file_size":            ("maxbytes",           "int"),
+        "max_attachments":          ("maxattachments",     "int"),
+        "subscription_mode":        ("forcesubscribe",     "str"),  # 0=optional 1=forced 2=auto 3=disabled
+        "tracking_type":            ("trackingtype",       "str"),
+        "completion_posts":         ("completionposts",    "int"),
+        "completion_discussions":   ("completiondiscussions", "int"),
+        "completion_replies":       ("completionreplies",  "int"),
+    },
+    "resource": {
+        **_COMMON_SCHEMA,
+        "description":   ("introeditor[text]", "str"),
+        "display_mode":  ("display",           "int"),   # 0=auto 1=embed 2=force download etc.
+        "show_size":     ("showsize",          "int"),
+        "show_type":     ("showtype",          "int"),
+        "show_date":     ("showdate",          "int"),
+    },
+    "url": {
+        **_COMMON_SCHEMA,
+        "description":   ("introeditor[text]", "str"),
+        "external_url":  ("externalurl",       "str"),
+        "display_mode":  ("display",           "int"),
+    },
+    "page": {
+        **_COMMON_SCHEMA,
+        "description":   ("introeditor[text]",        "str"),
+        "content":       ("page_content_editor[text]", "str"),
+        "display_mode":  ("display",                  "int"),
+    },
+    "label": {
+        **_COMMON_SCHEMA,
+        "content":       ("introeditor[text]", "str"),
+    },
+    "assign_default": {
+        **_COMMON_SCHEMA,
+        "description":   ("introeditor[text]", "str"),
+    },
+}
+_DEFAULT_SCHEMA = _SETTINGS_SCHEMA["assign_default"]
+
+# ── Course-level settings schema (course/edit.php) ────────────────────────────
+# type_hint: same as module schema — "str" | "int" | "float" | "datetime" | "tags"
+_COURSE_SETTINGS_SCHEMA: dict[str, tuple[str, str]] = {
+    # General
+    "fullname":                  ("fullname",              "str"),
+    "shortname":                 ("shortname",             "str"),
+    "id_number":                 ("idnumber",              "str"),
+    "visible":                   ("visible",               "int"),
+    "start_date":                ("startdate",             "datetime_always"),
+    "end_date":                  ("enddate",               "datetime"),
+    # Description
+    "summary":                   ("summary_editor[text]",  "str"),
+    # Course format
+    "format":                    ("format",                "str"),   # topics|weeks|social|singleactivity
+    "hidden_sections":           ("hiddensections",        "int"),   # 0=collapsed 1=invisible
+    "course_layout":             ("coursedisplay",         "int"),   # 0=all on one page 1=one section per page
+    # Appearance
+    "force_language":            ("lang",                  "str"),
+    "announcements_count":       ("newsitems",             "int"),
+    "show_gradebook":            ("showgrades",            "int"),
+    "show_activity_reports":     ("showreports",           "int"),
+    "show_activity_dates":       ("showactivitydates",     "int"),
+    # Files and uploads
+    "max_upload_size":           ("maxbytes",              "int"),
+    # Completion tracking
+    "enable_completion":         ("enablecompletion",      "int"),
+    "show_completion_conditions":("showcompletionconditions","int"),
+    # Groups
+    "group_mode":                ("groupmode",             "int"),   # 0=no groups 1=separate 2=visible
+    "force_group_mode":          ("groupmodeforce",        "int"),
+    "default_grouping":          ("defaultgroupingid",     "int"),
+    # Tags
+    "tags":                      ("tags",                  "tags"),
+}
+
+
+def _build_module_settings(form: dict[str, str], modname: str) -> dict[str, Any]:
+    """Build a curated settings dict from raw form data using the per-type schema.
+
+    Only non-trivially-default values are included (non-zero ints, non-empty strings,
+    non-empty dates, non-empty tags, non-zero durations). This keeps the YAML clean and
+    lets diff() skip modules whose settings are entirely at their defaults.
+    """
+    schema = _SETTINGS_SCHEMA.get(modname, _DEFAULT_SCHEMA)
+    result: dict[str, Any] = {}
+    for key, (field, kind) in schema.items():
+        if kind == "datetime":
+            val = _parse_datetime(form, field)
+            if val:
+                result[key] = val
+        elif kind == "duration_mins":
+            val = _parse_duration_mins(form, field)
+            if val:
+                result[key] = val
+        elif kind == "tags":
+            tags: list[str] = []
+            i = 0
+            while f"{field}[{i}]" in form:
+                tags.append(form[f"{field}[{i}]"])
+                i += 1
+            if tags:
+                result[key] = tags
+        elif kind == "int":
+            raw = form.get(field, "0")
+            try:
+                val_int = int(float(raw)) if raw else 0
+            except (ValueError, TypeError):
+                val_int = 0
+            if val_int:
+                result[key] = val_int
+        elif kind == "float":
+            raw = form.get(field, "")
+            try:
+                val_float = float(raw) if raw else 0.0
+            except ValueError:
+                val_float = 0.0
+            if val_float:
+                result[key] = val_float
+        else:  # str
+            val = form.get(field, "")
+            if val:
+                result[key] = val
+    return result
+
+
+def _settings_to_form(modname: str, settings: dict[str, Any]) -> dict[str, str]:
+    """Convert curated settings dict back to modedit.php form fields.
+
+    Used by `content set` and UPDATE_MODULE push. Unknown keys (raw field names)
+    are passed through directly so callers can bypass the schema when needed.
+    """
+    schema = _SETTINGS_SCHEMA.get(modname, _DEFAULT_SCHEMA)
+    form_changes: dict[str, str] = {}
+    for key, value in settings.items():
+        if key in schema:
+            field, kind = schema[key]
+            if kind == "datetime":
+                val_str = str(value) if value else ""
+                if val_str and _DATE_RE.match(val_str):
+                    form_changes.update(_datetime_to_form(val_str, field))
+                else:
+                    form_changes[f"{field}[enabled]"] = ""  # disable the date
+            elif kind == "duration_mins":
+                form_changes.update(_duration_mins_to_form(int(value or 0), field))
+            elif kind == "tags":
+                tag_list = value if isinstance(value, list) else ([value] if value else [])
+                for i, tag in enumerate(tag_list):
+                    form_changes[f"{field}[{i}]"] = str(tag)
+                if not tag_list:
+                    form_changes[f"{field}[]"] = ""
+            else:
+                form_changes[field] = str(value) if value is not None else ""
+        else:
+            # Raw form field name — pass through; update_module handles date expansion
+            form_changes[key] = str(value) if value is not None else ""
+    return form_changes
+
+
+def _course_settings_to_form(settings: dict[str, Any]) -> dict[str, str]:
+    """Convert curated course settings dict back to course/edit.php form fields."""
+    form_changes: dict[str, str] = {}
+    for key, value in settings.items():
+        if key in _COURSE_SETTINGS_SCHEMA:
+            field, kind = _COURSE_SETTINGS_SCHEMA[key]
+            if kind in ("datetime", "datetime_always"):
+                val_str = str(value) if value else ""
+                if val_str and _DATE_RE.match(val_str):
+                    form_changes.update(_datetime_to_form(val_str, field))
+                else:
+                    form_changes[f"{field}[enabled]"] = ""
+            elif kind == "tags":
+                tag_list = value if isinstance(value, list) else ([value] if value else [])
+                for i, tag in enumerate(tag_list):
+                    form_changes[f"{field}[{i}]"] = str(tag)
+                if not tag_list:
+                    form_changes[f"{field}[]"] = ""
+            else:
+                form_changes[field] = str(value) if value is not None else ""
+        else:
+            form_changes[key] = str(value) if value is not None else ""
+    return form_changes
+
+
+def _build_module_settings_dynamic(form: dict[str, str]) -> dict[str, Any]:
+    """Extract ALL form fields for `content settings` display (not used in YAML).
+
+    Date groups are collapsed; system/routing fields are excluded.
+    """
+    _SYSTEM = frozenset({
+        "sesskey", "update", "return", "course", "coursemodule", "instance",
+        "section", "module", "modulename", "submitbutton", "submitbutton2", "cancel",
+        "timemodified", "beforemod", "sr", "add", "showonly",
+    })
+    _SYS_PFX = ("_qf__", "mform_isexpanded_")
+
+    date_prefixes: set[str] = set()
+    for key in form:
+        m = re.match(r'^(.+)\[enabled\]$', key)
+        if m and f"{m.group(1)}[day]" in form:
+            date_prefixes.add(m.group(1))
+
+    date_sub_keys: set[str] = {
+        f"{p}[{part}]"
+        for p in date_prefixes
+        for part in ("enabled", "day", "month", "year", "hour", "minute")
+    }
+
+    result: dict[str, Any] = {}
+    for prefix in sorted(date_prefixes):
+        result[prefix] = _parse_datetime(form, prefix)
+
+    for key, value in form.items():
+        if key in date_sub_keys:
+            continue
+        if key in _SYSTEM:
+            continue
+        if any(key.startswith(p) for p in _SYS_PFX):
+            continue
+        if key.endswith("[itemid]"):
+            continue
+        if re.search(r'\[(format|trust|rescalegrades)\]$', key):
+            continue
+        result[key] = value
+
+    return result
+
+
 class MoodleAPI(MoodleClientBase):
 
     def _get_soup(self, url: str, params: dict[str, str | int] | None = None, context: str = "") -> BeautifulSoup:
@@ -66,6 +493,78 @@ class MoodleAPI(MoodleClientBase):
         return BeautifulSoup(resp.text, "html.parser")
 
     # ── Courses ───────────────────────────────────────────────────────────────
+
+    def get_course_form(self, course_id: CourseId) -> dict[str, str]:
+        """Scrape the course/edit.php form and return all field values."""
+        resp = self._session.get(
+            f"{self.base_url}/course/edit.php",
+            params={"id": int(course_id)},
+        )
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired while loading course settings.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        form = max(
+            soup.find_all("form"),
+            key=lambda f: len(f.find_all(["input", "select", "textarea"])),
+        )
+        data: dict[str, str] = {}
+        for el in form.find_all(["input", "select", "textarea"]):
+            name = _attr(el, "name")
+            if not name:
+                continue
+            tag = el.name
+            input_type = _attr(el, "type", "text").lower()
+            if tag == "select":
+                if el.get("multiple") is not None:
+                    base = name.rstrip("[]")
+                    selected_opts = el.find_all("option", selected=True)
+                    if selected_opts:
+                        for i, opt in enumerate(selected_opts):
+                            data[f"{base}[{i}]"] = _attr(opt, "value")
+                    else:
+                        data[f"{base}[]"] = ""
+                else:
+                    selected = el.find("option", selected=True)
+                    data[name] = _attr(selected, "value") if selected else ""
+            elif tag == "textarea":
+                data[name] = el.get_text()
+            elif input_type == "checkbox":
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value", "1")
+            elif input_type == "radio":
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value")
+            else:
+                data[name] = _attr(el, "value")
+        data.pop("saveanddisplay", None)
+        data.pop("cancel", None)
+        data["saveanddisplay"] = "Save and display"
+        return data
+
+    def update_course(self, course_id: CourseId, changes: dict[str, str]) -> None:
+        """Apply changes to course settings via course/edit.php."""
+        get_url = f"{self.base_url}/course/edit.php"
+        form_data = self.get_course_form(course_id)
+        for key, value in changes.items():
+            val = str(value) if value is not None else ""
+            if val and _DATE_RE.match(val):
+                form_data.update(_datetime_to_form(val, key))
+            elif not val and f"{key}[enabled]" in form_data:
+                form_data[f"{key}[enabled]"] = ""
+            else:
+                form_data[key] = val
+        resp = self._post_form(
+            f"{self.base_url}/course/edit.php",
+            form_data,
+            referer=get_url,
+        )
+        if resp.status_code == 404:
+            raise RuntimeError(f"course/edit.php POST returned 404 for course {course_id}")
+        if "edit.php" in resp.url and resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            error_el = soup.find(class_="alert-danger") or soup.find(id="id_error_fullname")
+            msg = error_el.get_text(strip=True) if error_el else "Unknown validation error"
+            raise RuntimeError(f"Moodle rejected course settings for {course_id}: {msg}")
 
     def get_courses(self, classification: str = "all", sort: str = "fullname") -> list[Course]:
         raw = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
@@ -505,10 +1004,266 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Messages ──────────────────────────────────────────────────────────────
 
+    def get_current_user_id(self) -> int:
+        resp = self._session.get(f"{self.base_url}/my/")
+        match = re.search(r'data-userid=["\'](\d+)["\']', resp.text)
+        if not match:
+            raise RuntimeError("Could not determine current user ID from dashboard page.")
+        return int(match.group(1))
+
     def send_message(self, user_id: UserId, message: str) -> JSON:
         return self.ajax("core_message_send_instant_messages", {
             "messages": [{"touserid": user_id, "text": message, "textformat": 1}],
         })
 
     def delete_message(self, message_id: int) -> None:
-        self.ajax("core_message_delete_message", {"messageid": message_id})
+        user_id = self.get_current_user_id()
+        self.ajax("core_message_delete_message", {"messageid": message_id, "userid": user_id})
+
+    # ── Course content ────────────────────────────────────────────────────────
+
+    def get_course_sections(self, course_id: CourseId, fetch_settings: bool = False) -> list[CourseSection]:
+        """Scrape /course/view.php and return all sections with their modules.
+
+        Section name from h3; summary from div.summary.
+        Module type from modtype_X CSS class; visibility from hiddenactivity class.
+        Module description from div.contentafterlink (inline description if set).
+        Due dates are NOT populated here -- call get_course_assignments() and merge.
+
+        fetch_settings=True makes one extra HTTP request per module to populate the
+        settings dict with all curated per-type fields (description, dates, grade, etc.).
+        Only use this for content pull -- it is too slow for diff/push comparisons.
+        """
+        soup = self._get_soup(
+            f"{self.base_url}/course/view.php",
+            params={"id": course_id},
+            context=f"course {course_id}",
+        )
+
+        sections: list[CourseSection] = []
+        for sec_el in soup.find_all(attrs={"data-for": "section"}):
+            sec_id = SectionId(int(_attr(sec_el, "data-id")))
+            sec_num = int(_attr(sec_el, "data-number", "0"))
+
+            # Section name from h3; fall back to data-number label
+            h3 = sec_el.find("h3")
+            sec_name = h3.get_text(strip=True) if h3 else f"Section {sec_num}"
+
+            # Section summary/description from div.summary
+            summary_el = sec_el.find("div", class_="summary")
+            sec_summary = summary_el.get_text(separator=" ", strip=True) if summary_el else ""
+
+            # Section visibility: hidden sections have class "hidden" on the li
+            sec_classes = _classes(sec_el)
+            sec_visible = "hidden" not in sec_classes
+
+            modules: list[CourseModule] = []
+            for act_el in sec_el.find_all("li", class_="activity"):
+                cmid_str = _attr(act_el, "data-id")
+                if not cmid_str:
+                    continue
+                cmid = Cmid(int(cmid_str))
+
+                act_classes = _classes(act_el)
+                modname = next(
+                    (c.removeprefix("modtype_") for c in act_classes if c.startswith("modtype_")),
+                    "unknown",
+                )
+
+                # Name: prefer data-activityname (works for all types including labels),
+                # then fall back to span.instancename with accesshide spans removed.
+                activity_item = act_el.find("div", class_="activity-item")
+                data_name = _attr(activity_item, "data-activityname") if activity_item else ""
+                if data_name:
+                    mod_name = data_name
+                else:
+                    name_el = act_el.find("span", class_="instancename")
+                    if name_el:
+                        for hidden in name_el.find_all("span", attrs={"class": lambda c: c and "accesshide" in c}):
+                            hidden.decompose()
+                        mod_name = name_el.get_text(strip=True)
+                    else:
+                        mod_name = act_el.get_text(strip=True)[:60]
+
+                # Module visibility: hidden items have hiddenactivity on the inner div
+                activity_div = act_el.find("div", class_="activity-item")
+                mod_visible = True
+                if activity_div:
+                    div_classes = _classes(activity_div)
+                    mod_visible = "hiddenactivity" not in div_classes
+
+                # Deeplink URL from the primary anchor
+                link = act_el.find("a", class_="aalink")
+                mod_url = _attr(link, "href") if link else ""
+
+                # Inline description from contentafterlink div
+                desc_el = act_el.find("div", class_="contentafterlink")
+                mod_description = desc_el.get_text(separator=" ", strip=True) if desc_el else ""
+
+                settings: dict[str, object] = {}
+                if fetch_settings:
+                    try:
+                        settings = _build_module_settings(self.get_module_form(cmid), modname)
+                    except Exception:
+                        pass  # best-effort; never block the pull
+
+                modules.append({
+                    "cmid": cmid,
+                    "name": mod_name,
+                    "modname": modname,
+                    "visible": mod_visible,
+                    "url": mod_url,
+                    "description": mod_description,
+                    "due_date": "",
+                    "settings": settings,
+                })
+
+            sections.append({
+                "id": sec_id,
+                "number": sec_num,
+                "name": sec_name,
+                "summary": sec_summary,
+                "visible": sec_visible,
+                "modules": modules,
+            })
+
+        return sections
+
+    def set_module_visible(self, cmid: Cmid, visible: bool) -> None:
+        action = "show" if visible else "hide"
+        self.ajax("core_course_edit_module", {"id": cmid, "action": action})
+
+    def set_section_visible(self, section_id: SectionId, visible: bool) -> None:
+        action = "show" if visible else "hide"
+        self.ajax("core_course_edit_section", {"id": section_id, "action": action})
+
+    def move_section(self, course_id: CourseId, section_id: SectionId, before_section_id: SectionId) -> None:
+        """Move a section to appear immediately before before_section_id.
+
+        Uses core_courseformat_update_course section_move action (Moodle 4.x).
+        Unlike module moves, there is no valid "end" sentinel — callers must
+        ensure before_section_id is a real section in the same course.
+        """
+        self.ajax("core_courseformat_update_course", {
+            "action": "section_move",
+            "courseid": int(course_id),
+            "ids": [int(section_id)],
+            "targetsectionid": int(before_section_id),
+        })
+
+    def move_module(self, course_id: CourseId, cmid: Cmid, target_cmid: int, section_id: SectionId) -> None:
+        """Move a module to a new position within a section.
+
+        target_cmid=0 appends to the end; any other value places the module
+        immediately before that cmid. Uses core_courseformat_update_course
+        with the cm_move action (Moodle 4.x format_topics stateactions).
+        """
+        self.ajax("core_courseformat_update_course", {
+            "action": "cm_move",
+            "courseid": int(course_id),
+            "ids": [int(cmid)],
+            "targetsectionid": int(section_id),
+            "targetcmid": target_cmid,
+        })
+
+    def rename_module(self, cmid: Cmid, name: str) -> None:
+        self.ajax("core_update_inplace_editable", {
+            "component": "core_course",
+            "itemtype": "activityname",
+            "itemid": cmid,
+            "value": name,
+        })
+
+    def rename_section(self, section_id: SectionId, name: str) -> None:
+        self.ajax("core_update_inplace_editable", {
+            "component": "format_topics",
+            "itemtype": "sectionname",
+            "itemid": section_id,
+            "value": name,
+        })
+
+    def delete_module(self, cmid: Cmid) -> None:
+        self.ajax("core_course_edit_module", {"id": cmid, "action": "delete"})
+
+    # ── Module form (modedit.php) ─────────────────────────────────────────────
+
+    def get_module_form(self, cmid: Cmid) -> dict[str, str]:
+        """Scrape the modedit.php edit form for a module and return all field values.
+
+        Always fetches fresh — the introeditor draft itemid expires and must not be cached.
+        The returned dict contains every form field (hidden + visible), ready to POST back.
+        """
+        get_url = f"{self.base_url}/course/modedit.php"
+        resp = self._session.get(get_url, params={"update": int(cmid), "return": 0})
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # The real form has 100+ fields; a small wrapper form has ~5.
+        form = max(soup.find_all("form"), key=lambda f: len(f.find_all(["input", "select", "textarea"])))
+
+        data: dict[str, str] = {}
+        for el in form.find_all(["input", "select", "textarea"]):
+            name = _attr(el, "name")
+            if not name:
+                continue
+            tag = el.name
+            input_type = _attr(el, "type", "text").lower()
+
+            if tag == "select":
+                if el.get("multiple") is not None:
+                    # Multi-select (e.g. tags[]): store each selected option as indexed key
+                    selected_opts = el.find_all("option", selected=True)
+                    base = name.rstrip("[]")
+                    if selected_opts:
+                        for i, opt in enumerate(selected_opts):
+                            data[f"{base}[{i}]"] = _attr(opt, "value")
+                    else:
+                        data[f"{base}[]"] = ""
+                else:
+                    selected = el.find("option", selected=True)
+                    data[name] = _attr(selected, "value") if selected else ""
+            elif tag == "textarea":
+                data[name] = el.get_text()
+            elif input_type == "checkbox":
+                # Presence of checked attr (even as "") means checked; None means unchecked.
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value", "1")
+            elif input_type == "radio":
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value")
+            else:
+                data[name] = _attr(el, "value")
+
+        # Always trigger save-and-return so Moodle redirects back to the course page on success.
+        data["submitbutton2"] = "Save and return to course"
+        data.pop("submitbutton", None)
+        data.pop("cancel", None)
+        return data
+
+    def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None:
+        """Apply field changes to a module via the modedit.php form.
+
+        Scrapes the form fresh (to get current values and a valid draft itemid),
+        merges `changes`, then POSTs. Raises RuntimeError if Moodle reports an error.
+        """
+        get_url = f"{self.base_url}/course/modedit.php"
+        form_data = self.get_module_form(cmid)
+        for key, value in changes.items():
+            val = str(value) if value is not None else ""
+            if val and _DATE_RE.match(val):
+                # Datetime string -> expand to date group sub-fields and enable
+                form_data.update(_datetime_to_form(val, key))
+            elif not val and f"{key}[enabled]" in form_data:
+                # Empty value for a date group prefix -> disable the date
+                form_data[f"{key}[enabled]"] = ""
+            else:
+                form_data[key] = val
+        resp = self._post_form(f"{self.base_url}/course/modedit.php", form_data, referer=get_url)
+        if resp.status_code == 404:
+            raise RuntimeError(f"modedit.php POST returned 404 for cmid={cmid} — check session")
+        # Success: Moodle redirects to the course or module view page.
+        # Failure: stays on modedit.php and shows validation errors in HTML.
+        if "modedit.php" in resp.url and resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            error_el = soup.find(class_="alert-danger") or soup.find(id="id_error_name")
+            msg = error_el.get_text(strip=True) if error_el else "Unknown validation error"
+            raise RuntimeError(f"Moodle rejected the form for cmid={cmid}: {msg}")

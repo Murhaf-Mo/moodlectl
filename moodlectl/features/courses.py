@@ -187,3 +187,70 @@ def _normalise(user: Participant) -> Participant:
         "lastaccess": user.get("lastaccess", ""),
         "status": user.get("status", ""),
     }
+
+
+def get_course_settings(
+    client: MoodleClientProtocol,
+    course_id: CourseId,
+) -> dict[str, object]:
+    """Return the curated settings dict for a course."""
+    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA, _build_module_settings
+    form = client.get_course_form(course_id)
+    result: dict[str, object] = {}
+    for key, (field, kind) in _COURSE_SETTINGS_SCHEMA.items():
+        if kind == "datetime":
+            from moodlectl.client.api import _parse_datetime
+            result[key] = _parse_datetime(form, field)
+        elif kind == "datetime_always":
+            from moodlectl.client.api import _parse_datetime
+            result[key] = _parse_datetime(form, field, always_on=True)
+        elif kind == "tags":
+            tags: list[str] = []
+            i = 0
+            while f"{field}[{i}]" in form:
+                tags.append(form[f"{field}[{i}]"])
+                i += 1
+            result[key] = tags
+        elif kind == "int":
+            raw = form.get(field, "0")
+            try:
+                result[key] = int(float(raw)) if raw else 0
+            except (ValueError, TypeError):
+                result[key] = 0
+        elif kind == "float":
+            raw = form.get(field, "")
+            try:
+                result[key] = float(raw) if raw else 0.0
+            except ValueError:
+                result[key] = raw
+        else:
+            result[key] = form.get(field, "")
+    return result
+
+
+def set_course_setting(
+    client: MoodleClientProtocol,
+    course_id: CourseId,
+    field: str,
+    value: str,
+) -> None:
+    """Set a single course setting by human-readable name or raw form field."""
+    from moodlectl.client.api import _COURSE_SETTINGS_SCHEMA, _settings_to_form
+
+    schema_modname = "__course__"
+    if field in _COURSE_SETTINGS_SCHEMA:
+        form_field, kind = _COURSE_SETTINGS_SCHEMA[field]
+        if kind in ("datetime", "datetime_always"):
+            from moodlectl.client.api import _datetime_to_form, _DATE_RE
+            changes = _datetime_to_form(value, form_field) if _DATE_RE.match(value) else {f"{form_field}[enabled]": ""}
+        elif kind == "tags":
+            tag_list = [v.strip() for v in value.split(",") if v.strip()]
+            changes = {f"{form_field}[{i}]": t for i, t in enumerate(tag_list)}
+            if not tag_list:
+                changes = {f"{form_field}[]": ""}
+        else:
+            changes = {form_field: value}
+    else:
+        changes = {field: value}
+
+    client.update_course(course_id, changes)

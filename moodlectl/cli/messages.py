@@ -23,8 +23,12 @@ def send(
       moodlectl messages send --to 1557 --text "Your assignment is due tomorrow."
     """
     client = MoodleClient.from_config(Config.load())
-    client.send_message(UserId(to), text)
-    console.print(f"[green]Message sent to user {to}.[/green]")
+    result = client.send_message(UserId(to), text)
+    msg_id = result[0].get("msgid") if isinstance(result, list) and result else None
+    if msg_id:
+        console.print(f"[green]Message sent to user {to}. Message ID: {msg_id}[/green]")
+    else:
+        console.print(f"[green]Message sent to user {to}.[/green]")
 
 
 @app.command("delete")

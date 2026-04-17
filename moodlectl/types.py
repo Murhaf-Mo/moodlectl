@@ -6,20 +6,23 @@ on the exact structure of each object without using Any.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, NewType, Protocol, TypedDict
+from typing import Any, Literal, NewType, Protocol, TypedDict
 
 # ---------------------------------------------------------------------------
 # Semantic ID types — prevents mixing up cmid, user_id, and course_id
 # ---------------------------------------------------------------------------
 
 Cmid = NewType("Cmid", int)
-"""Course-module ID — identifies an assignment instance (from `mod/assign/index.php`)."""
+"""Course-module ID — identifies a course module (from course/view.php data-id)."""
 
 UserId = NewType("UserId", int)
 """Moodle user ID — identifies a student or teacher (from `user/index.php`)."""
 
 CourseId = NewType("CourseId", int)
 """Moodle course ID — identifies a course (from enrolled courses API)."""
+
+SectionId = NewType("SectionId", int)
+"""Moodle section DB id — NOT the ordinal section number. Used in API calls."""
 
 # ---------------------------------------------------------------------------
 # Recursive JSON type — used only at the raw HTTP boundary in client/base.py
@@ -53,6 +56,26 @@ class Course(TypedDict):
 class FileRef(TypedDict):
     filename: str
     url: str
+
+
+class CourseModule(TypedDict):
+    cmid: Cmid
+    name: str
+    modname: str      # "forum", "resource", "label", "url", "page", "assign", …
+    visible: bool
+    url: str          # deeplink to activity page (empty string if absent)
+    description: str  # inline description shown on the course page (empty if absent)
+    due_date: str     # due date string for assign/quiz (empty for other types)
+    settings: dict[str, Any]  # curated per-type settings (empty unless fetch_settings=True)
+
+
+class CourseSection(TypedDict):
+    id: SectionId     # DB id — used in API calls, not shown to users
+    number: int       # ordinal 0-indexed position — shown to users
+    name: str
+    summary: str      # section description/summary (empty if absent)
+    visible: bool
+    modules: list[CourseModule]
 
 
 class Participant(TypedDict):
@@ -305,3 +328,27 @@ class MoodleClientProtocol(Protocol):
     def send_message(self, user_id: UserId, message: str) -> JSON: ...
 
     def delete_message(self, message_id: int) -> None: ...
+
+    def get_course_sections(self, course_id: CourseId) -> list[CourseSection]: ...
+
+    def set_module_visible(self, cmid: Cmid, visible: bool) -> None: ...
+
+    def set_section_visible(self, section_id: SectionId, visible: bool) -> None: ...
+
+    def rename_module(self, cmid: Cmid, name: str) -> None: ...
+
+    def rename_section(self, section_id: SectionId, name: str) -> None: ...
+
+    def delete_module(self, cmid: Cmid) -> None: ...
+
+    def move_module(self, course_id: CourseId, cmid: Cmid, target_cmid: int, section_id: SectionId) -> None: ...
+
+    def move_section(self, course_id: CourseId, section_id: SectionId, before_section_id: SectionId) -> None: ...
+
+    def get_module_form(self, cmid: Cmid) -> dict[str, str]: ...
+
+    def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None: ...
+
+    def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
+
+    def update_course(self, course_id: CourseId, changes: dict[str, str]) -> None: ...

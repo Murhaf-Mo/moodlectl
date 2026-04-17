@@ -299,6 +299,86 @@ reports/
   4_grade_progression.png
 ```
 
+### content
+
+Manage course sections and modules (any type: resource, url, page, forum, quiz, assign, label, …).
+
+```bash
+# List all sections and modules in a course (tree view)
+moodlectl content list --course 581
+
+# Filter to one section by number (0-indexed)
+moodlectl content list --course 581 --section 2
+
+# Filter by module type
+moodlectl content list --course 581 --type resource
+
+# Exclude hidden items
+moodlectl content list --course 581 --no-hidden
+
+# Machine-readable output
+moodlectl content list --course 581 --output json
+
+# Show full details for one module (name, type, visibility, URL)
+moodlectl content show --course 581 --cmid 18346
+
+# Hide / unhide a module
+moodlectl content hide   --course 581 --cmid 18346
+moodlectl content unhide --course 581 --cmid 18346
+
+# Rename a module
+moodlectl content rename --course 581 --cmid 18346 --name "Syllabus"
+
+# Delete a module (goes to Moodle recycle bin — recoverable)
+moodlectl content delete --course 581 --cmid 18346 --force
+
+# Hide / unhide an entire section
+moodlectl content section hide   --course 581 --section 1
+moodlectl content section unhide --course 581 --section 1
+
+# Rename a section
+moodlectl content section rename --course 581 --section 1 --name "Week 1: Introduction"
+
+# Inspect all editable settings for a module
+moodlectl content settings --course 581 --cmid 18867
+
+# Change a single setting on a module
+moodlectl content set --course 581 --cmid 18867 --field due_date --value "2026-05-01 23:59"
+moodlectl content set --course 581 --cmid 18867 --field max_grade --value 20
+moodlectl content set --course 581 --cmid 18867 --field description --value "<p>New description.</p>"
+```
+
+**Supported settings by module type:**
+
+| Module type | Available fields |
+|-------------|-----------------|
+| `assign` | `description`, `due_date`, `available_from`, `cut_off`, `max_grade`, `grade_pass` |
+| `quiz` | `description`, `due_date`, `available_from`, `cut_off`, `time_limit_mins`, `attempts_allowed`, `grade_method` |
+| `forum` | `description`, `subscription_mode`, `max_attachments` |
+| All others | `description` |
+
+Dates use `"YYYY-MM-DD HH:MM"` format (e.g. `"2026-05-01 23:59"`).
+
+**YAML bulk-edit workflow** — export the full course structure including all activity settings, edit it in any text editor, then push changes back:
+
+```bash
+# Export to file (includes all settings for every module)
+moodlectl content pull --course 581 -o course.yaml
+
+# Preview what will change (dry run — nothing applied)
+moodlectl content push course.yaml --dry-run
+
+# Apply changes (prompts for confirmation)
+moodlectl content push course.yaml
+
+# Apply without prompt
+moodlectl content push course.yaml --yes
+```
+
+The YAML includes a `settings:` block per module with all supported fields for that type (description, due dates, grade limits, etc.). Edit any of these and push — only changed values are sent to Moodle.
+Module order within a section and section order can be changed by reordering entries in the YAML — push detects and applies the moves.
+Modules absent from the YAML are never auto-deleted; push warns about them instead.
+
 ### messages
 
 ```bash
@@ -354,6 +434,15 @@ moodlectl assignments remind --assignment 18002 --course 568 --text "Deadline is
 moodlectl grades show --course 568 --output csv > grades.csv
 moodlectl assignments missing --output csv > missing.csv
 moodlectl grades stats --course 568
+```
+
+**Bulk course content edit:**
+
+```bash
+moodlectl content pull --course 581 -o course.yaml   # export (includes all settings)
+# edit course.yaml: rename, hide/unhide, reorder, change due dates, grades, etc.
+moodlectl content push course.yaml --dry-run          # preview diff
+moodlectl content push course.yaml --yes              # apply
 ```
 
 **Course analytics report:**

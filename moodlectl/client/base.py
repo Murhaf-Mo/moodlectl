@@ -42,6 +42,17 @@ class MoodleClientBase:
                 "Re-login in your browser and update MOODLE_SESSION in .env"
             )
 
+    def _post_form(self, url: str, data: dict[str, str], referer: str | None = None) -> requests.Response:
+        """POST HTML form data, bypassing the JSON Content-Type set on the shared session."""
+        return self._session.post(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Referer": referer or f"{self.base_url}/my/",
+            },
+        )
+
     def ajax(self, methodname: str, args: dict[str, JSON]) -> JSON:
         resp = self._session.post(
             f"{self.base_url}/lib/ajax/service.php",
