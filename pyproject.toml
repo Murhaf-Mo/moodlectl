@@ -30,6 +30,10 @@ analytics = [
     "plotext>=5.2.8",
     "matplotlib>=3.8.0",
 ]
+browser = [
+    "selenium>=4.20",
+    "webdriver-manager>=4.0",
+]
 
 [project.scripts]
 moodlectl = "moodlectl.cli.main:app"
