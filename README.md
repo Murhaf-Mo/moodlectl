@@ -1,4 +1,4 @@
-ok# moodlectl
+# moodlectl
 
 Automate your Moodle LMS from the command line. Built for CCK University instructors.
 

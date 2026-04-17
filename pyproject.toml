@@ -17,12 +17,6 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Education",
 ]
-
-[project.urls]
-Homepage = "https://github.com/Murhaf-Mo/moodlectl"
-Repository = "https://github.com/Murhaf-Mo/moodlectl"
-Issues = "https://github.com/Murhaf-Mo/moodlectl/issues"
-
 dependencies = [
     "requests>=2.33",
     "beautifulsoup4>=4.14",
@@ -31,6 +25,11 @@ dependencies = [
     "python-dotenv>=1.0",
     "anthropic>=0.40",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Murhaf-Mo/moodlectl"
+Repository = "https://github.com/Murhaf-Mo/moodlectl"
+Issues = "https://github.com/Murhaf-Mo/moodlectl/issues"
 
 [project.optional-dependencies]
 dev = [
