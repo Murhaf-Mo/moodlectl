@@ -88,7 +88,7 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
     try:
         driver.get(base_url)
         console.print(
-            "\n[bold]Chrome is open.[/bold] Log in with your CCK credentials.\n"
+            "\n[bold]Chrome is open.[/bold] Log in with your Moodle credentials.\n"
             "[dim]The window will close automatically once you're in.[/dim]\n"
         )
 
@@ -149,7 +149,7 @@ def login() -> None:
         )
         raise typer.Exit(1)
 
-    base_url = os.environ.get("MOODLE_BASE_URL", "https://mylms.cck.edu.kw")
+    base_url = os.environ.get("MOODLE_BASE_URL", "https://moodle.example.com")
     env_path = Path(".env")
 
     # ── Pre-check: skip browser if session is already valid ───────────────────
@@ -254,3 +254,24 @@ def check_session() -> None:
             pass
     elif timeout_sec:
         console.print(f"Moodle session timeout: [bold]{_format_duration(timeout_sec)}[/bold]")
+
+
+@app.command("set-url")
+def set_url(
+    url: str = typer.Argument(
+        ...,
+        help="Base URL of the Moodle instance (e.g. https://moodle.example.com).",
+    ),
+) -> None:
+    """Set the Moodle base URL and save it to .env.
+
+    The default URL is https://moodle.example.com. Use this command to point
+    moodlectl at a different Moodle instance.
+
+    Examples:
+      moodlectl auth set-url https://moodle.example.com
+    """
+    url = url.rstrip("/")
+    env_path = Path(".env")
+    set_key(str(env_path), "MOODLE_BASE_URL", url)
+    console.print(f"[green]MOODLE_BASE_URL set to:[/green] {url}")

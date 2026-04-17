@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`moodlectl` — a CLI tool for automating Moodle LMS tasks at CCK University (Kuwait). It connects via browser session
+`moodlectl` — a CLI tool for automating Moodle LMS tasks. It connects via browser session
 cookies (Microsoft SSO; no programmatic login possible).
 
 ## Setup & Commands

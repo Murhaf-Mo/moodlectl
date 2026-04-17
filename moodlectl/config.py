@@ -26,7 +26,7 @@ class Config:
 
     @classmethod
     def load(cls) -> "Config":
-        base_url = os.environ.get("MOODLE_BASE_URL", "https://mylms.cck.edu.kw")
+        base_url = os.environ.get("MOODLE_BASE_URL", "https://moodle.example.com")
         session = os.environ.get("MOODLE_SESSION", "")
         sesskey = os.environ.get("MOODLE_SESSKEY", "")
 

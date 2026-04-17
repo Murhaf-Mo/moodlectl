@@ -36,7 +36,7 @@ Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Open a NEW terminal window (so PATH is refreshed)"
 Write-Host "  2. Run: moodlectl auth login"
-Write-Host "     Chrome will open — log in with your CCK credentials."
+Write-Host "     Chrome will open — log in with your Moodle credentials."
 Write-Host "     The window closes automatically when done."
 Write-Host ""
 Write-Host "Then try: moodlectl --help"

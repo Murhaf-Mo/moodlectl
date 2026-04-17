@@ -1,6 +1,6 @@
 # moodlectl
 
-Automate your Moodle LMS from the command line. Built for CCK University instructors.
+Automate your Moodle LMS from the command line.
 
 ![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
 
@@ -31,41 +31,30 @@ curl -fsSL https://raw.githubusercontent.com/Murhaf-Mo/moodlectl/master/install.
 
 ## Authentication
 
-### First login
+### 1. Set your Moodle URL
+
+```bash
+moodlectl auth set-url https://moodle.yourschool.edu
+```
+
+This saves `MOODLE_BASE_URL` to your `.env` file. Only needed once.
+
+### 2. First login
 
 ```powershell
 moodlectl auth login
 ```
 
-Chrome opens automatically. Log in with your CCK Microsoft credentials — the window
-closes on its own once login is detected and your session is saved.
-
-### Check session status
-
-```powershell
-moodlectl auth check
-```
-
-```
-Session valid. 3 course(s) accessible.
-Session age: 12m 4s
-Expires in: 7h 47m (Moodle timeout: 8h 0m)
-```
-
-Shows how long you have before the session expires so you can re-login before
-starting a long operation.
-
-### Session expired?
-
-Just run `moodlectl auth login` again — it checks first and only opens Chrome
-if your session actually needs refreshing.
+Chrome opens automatically. Log in with your Moodle credentials — the window
+closes on its own once login is detected and your session is saved. Running it                                                                                                                          
+again when your session is still valid skips the browser entirely.  
 
 ### Manual fallback (no browser)
 
 Create a `.env` file in your working directory:
 
 ```
-MOODLE_BASE_URL=https://mylms.cck.edu.kw
+MOODLE_BASE_URL=https://moodle.yourschool.edu
 MOODLE_SESSION=<value>   # F12 → Application → Cookies → MoodleSession
 MOODLE_SESSKEY=<value>   # F12 → Network → any service.php request body
 ```
@@ -89,6 +78,9 @@ moodlectl assignments ungraded      # everything waiting to be graded
 ### auth
 
 ```bash
+# Set the Moodle base URL — do this once before logging in
+moodlectl auth set-url https://moodle.yourschool.edu
+
 # Auto-login: opens Chrome, saves session — skips browser if session is still valid
 moodlectl auth login
 
@@ -391,16 +383,3 @@ cp .env.example .env   # then fill in MOODLE_SESSION and MOODLE_SESSKEY
 pytest                 # run tests
 ruff check .           # lint
 ```
-
-### Releasing a new version
-
-```bash
-# 1. Finish work on master, bump version in pyproject.toml
-# 2. Create and push a release branch — GitHub Actions does the rest
-git checkout -b release/v1.0.0
-git commit -am "Release v1.0.0"
-git push origin release/v1.0.0
-```
-
-GitHub Actions will run tests, build the Windows installer, and publish it
-to GitHub Releases automatically.
