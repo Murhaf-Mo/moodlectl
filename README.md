@@ -2,7 +2,7 @@
 
 Automate your Moodle LMS from the command line.
 
-![CI](https://github.com/Murhaf-Mo/workspace/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
 
 Courses, participants, assignments, grading, analytics, bulk content edits — all scriptable. Defaults to the public
 sandbox at [school.moodledemo.net](https://school.moodledemo.net) so you can try every command before pointing it at
