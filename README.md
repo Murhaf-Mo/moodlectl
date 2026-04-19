@@ -254,6 +254,40 @@ Works both in `content push` (alongside edits/reorders) and standalone via `cont
 a single mapping or a list; top-level `section: <n>` is required when the file is consumed by `content create`, inferred
 from position when consumed by `content push`.
 
+### announcements
+
+Post, view, edit, and delete discussions in a course forum. Posts in the default
+Announcements (news) forum email every enrolled student and hit the dashboard
+alert — same behaviour as the Moodle web UI.
+
+```bash
+moodlectl announcements send -c 51 -s "Midterm moved" -m "<p>Thursday 10 am.</p>"
+moodlectl announcements send -c 51 -s "Week 6 notes" --message-file week6.html --pinned
+moodlectl announcements send --forum 19850 -s "..." -m "..." --no-mail
+moodlectl announcements send -c 51 -s "Syllabus" -m "<p>See attached.</p>" --attach syllabus.pdf
+moodlectl announcements send -c 51 -s "Notes" --message-file notes.md --format markdown
+
+moodlectl announcements list -c 51                 # newest first, pinned surface above
+moodlectl announcements list --forum 19850 --limit 5 -o json
+
+moodlectl announcements show   --id 2456           # root post + replies
+moodlectl announcements edit   --id 2456 -s "Corrected date" --message-file fix.html
+moodlectl announcements delete --id 2456 --force
+```
+
+`--course`/`-c` auto-resolves the course's news forum. `--forum <cmid>` targets
+any other forum (copy the cmid from `content list`). `--message` accepts raw
+HTML; `--message-file` reads from a local file (convenient for long RTL Arabic
+notes). `--format` switches between `html` (default), `plain`, `moodle`, and
+`markdown`. `--attach` is repeatable — each file is uploaded to a fresh draft
+area and attached to the discussion. `--no-mail` suppresses the instant email
+blast while still publishing the post. `--pinned` sticks the discussion to the
+top. `--group <id>` restricts the post to a specific group (`-1` = all).
+
+`edit` rewrites only the root post's subject and message; other metadata
+(mail-now, pinned, attachments) is left as-is. `delete` removes the root post,
+which cascades to every reply.
+
 ### messages
 
 ```bash

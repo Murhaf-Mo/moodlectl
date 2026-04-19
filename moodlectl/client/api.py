@@ -17,7 +17,9 @@ from moodlectl.types import (
     CourseId,
     CourseModule,
     CourseSection,
+    Discussion,
     FileRef,
+    ForumPost,
     FormFields,
     GradeReport,
     Participant,
@@ -487,6 +489,21 @@ def _build_module_settings_dynamic(form: dict[str, str]) -> dict[str, Any]:  # p
         result[key] = value
 
     return result
+
+
+def _json_int(v: JSON | None, default: int = 0) -> int:
+    """Coerce a JSON value to int, defaulting when impossible. Type-safe: never
+    raises and never widens to Any."""
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, (int, float)):
+        return int(v)
+    if isinstance(v, str):
+        try:
+            return int(v)
+        except ValueError:
+            return default
+    return default
 
 
 def _parse_modedit_form(soup: BeautifulSoup, origin: str) -> dict[str, str]:
@@ -1100,6 +1117,377 @@ class MoodleAPI(MoodleClientBase):
         user_id = self.get_current_user_id()
         self.ajax("core_message_delete_message", {"messageid": message_id, "userid": user_id})
 
+    # ── Forum discussions (Announcements) ─────────────────────────────────────
+
+    def resolve_forum_instance(self, cmid: Cmid) -> int:
+        """Return the forum row id (instance) for a forum-type course module.
+
+        `cmid` identifies a course module slot; Moodle's forum AJAX endpoints
+        need the forum's own instance id (separate table, separate id).
+
+        Tries AJAX `core_course_get_course_module` first; if that webservice is
+        disabled (common on locked-down Moodle installs), falls back to
+        scraping the modedit form for the hidden `instance` field.
+        """
+        try:
+            result = self.ajax("core_course_get_course_module", {"cmid": int(cmid)})
+        except RuntimeError:
+            form = self.get_module_form(cmid)
+            raw = form.get("instance", "")
+            if not raw.isdigit():
+                raise RuntimeError(f"Could not scrape forum instance for cmid={cmid} from modedit form.")
+            return int(raw)
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Unexpected response for cmid={cmid}: {result!r}")
+        cm = result.get("cm")
+        if not isinstance(cm, dict) or "instance" not in cm:
+            raise RuntimeError(f"No forum instance for cmid={cmid}: {result!r}")
+        return _json_int(cm.get("instance"))
+
+    def post_forum_discussion(
+            self,
+            forum_cmid: Cmid,
+            subject: str,
+            message: str,
+            mail_now: bool = True,
+            pinned: bool = False,
+            subscribe: bool = True,
+            message_format: int = 1,  # 0=moodle, 1=html, 2=plain, 4=markdown
+            group_id: int = -1,
+            attachment_paths: list[str] | None = None,
+    ) -> int:
+        """Post a new discussion by scraping /mod/forum/post.php (no webservices).
+
+        Every option the UI exposes is patched into the scraped form:
+        subject, message[text], message[format], discussionsubscribe, mailnow,
+        pinned. `group_id` is sent via URL query like the UI does. Local file
+        attachments are pushed into the form's draft area before submit.
+
+        Returns the new discussion id (parsed from the post-redirect URL).
+        """
+        forum_id = self.resolve_forum_instance(forum_cmid)
+        get_url = f"{self.base_url}/mod/forum/post.php"
+        params: dict[str, str | int] = {"forum": forum_id}
+        if group_id != -1:
+            params["groupid"] = group_id
+
+        resp_get = self._session.get(get_url, params=params)
+        if "login" in resp_get.url:
+            raise RuntimeError(f"Session expired while loading forum post form.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp_get.text, "html.parser")
+        forms = soup.find_all("form")
+        if not forms:
+            raise RuntimeError("Forum post form not found — you may lack post permission.")
+        form = max(forms, key=lambda f: len(f.find_all(["input", "select", "textarea"])))
+
+        form_data: dict[str, str] = {}
+        for el in form.find_all(["input", "select", "textarea"]):
+            name = _attr(el, "name")
+            if not name:
+                continue
+            # Empty array fields (e.g. tags[]) crash Moodle internals when sent
+            # blank: "get_in_or_equal() does not accept empty arrays".
+            if name.endswith("[]"):
+                continue
+            tag = el.name
+            input_type = _attr(el, "type", "text").lower()
+            if input_type == "submit":
+                continue  # cancel/submit buttons — only `submitbutton` is appended below
+            if tag == "select":
+                selected = el.find("option", selected=True)
+                form_data[name] = _attr(selected, "value") if selected else ""
+            elif tag == "textarea":
+                form_data[name] = el.get_text()
+            elif input_type == "checkbox":
+                if el.get("checked") is not None:
+                    form_data[name] = _attr(el, "value", "1")
+            elif input_type == "radio":
+                if el.get("checked") is not None:
+                    form_data[name] = _attr(el, "value")
+            else:
+                form_data[name] = _attr(el, "value")
+
+        # Upload attachments into the draft area scraped from this form.
+        if attachment_paths:
+            draft_itemid = form_data.get("attachments", "")
+            if not draft_itemid:
+                raise RuntimeError(
+                    "Forum post form has no `attachments` draft itemid — this forum may not allow attachments."
+                )
+            for p in attachment_paths:
+                self._upload_to_draft(soup, draft_itemid, p)
+
+        # Patch the fields the UI would fill in.
+        form_data["subject"] = subject
+        form_data["message[text]"] = message
+        form_data["message[format]"] = str(message_format)
+        form_data["discussionsubscribe"] = "1" if subscribe else "0"
+        form_data["mailnow"] = "1" if mail_now else "0"
+        form_data["pinned"] = "1" if pinned else "0"
+        form_data["submitbutton"] = "Post to forum"
+
+        # Discover discussion id: snapshot existing ids before, diff after.
+        before = self._snapshot_discussion_ids(forum_cmid)
+
+        post_url = f"{self.base_url}/mod/forum/post.php"
+        resp = self._post_form(post_url, form_data, referer=resp_get.url)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"post.php returned HTTP {resp.status_code}")
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired during forum post.\n{_SESSION_EXPIRED}")
+        if "post.php" in resp.url:
+            # Still on the form page — validation error.
+            err_soup = BeautifulSoup(resp.text, "html.parser")
+            for el in err_soup.find_all(class_=["alert-danger", "formerror", "error"]):
+                text = el.get_text(separator=" ", strip=True)
+                if text:
+                    raise RuntimeError(f"Moodle rejected the post: {text}")
+            raise RuntimeError("Moodle rejected the post — unknown validation error.")
+
+        # Try to extract discussion id from redirect URL first.
+        m = re.search(r"[?&]d=(\d+)", resp.url)
+        if m:
+            return int(m.group(1))
+
+        # Fallback: compare before/after snapshots.
+        after = self._snapshot_discussion_ids(forum_cmid)
+        new_ids = sorted(after - before)
+        if new_ids:
+            return new_ids[-1]
+        raise RuntimeError("Post succeeded but could not determine the new discussion id.")
+
+    def _snapshot_discussion_ids(self, forum_cmid: Cmid) -> set[int]:
+        """Return the set of discussion ids currently visible on /mod/forum/view.php.
+
+        Best-effort: modern Moodle templates fill this list via JS, so the set
+        may be empty until a discussion exists (the server does embed direct
+        discuss.php links for the first row in some themes). Safe to call even
+        when listing isn't otherwise supported."""
+        try:
+            resp = self._session.get(
+                f"{self.base_url}/mod/forum/view.php",
+                params={"id": int(forum_cmid)},
+            )
+        except Exception:
+            return set()
+        ids: set[int] = set()
+        for m in re.finditer(r"discuss\.php\?d=(\d+)", resp.text):
+            ids.add(int(m.group(1)))
+        for m in re.finditer(r'data-discussionid="(\d+)"', resp.text):
+            ids.add(int(m.group(1)))
+        return ids
+
+    def get_discussion_posts(self, discussion_id: int) -> list[ForumPost]:
+        """Scrape /mod/forum/discuss.php?d=ID for every post in a discussion.
+
+        Returns the root post followed by any replies, in rendered order.
+        Each post's `parentid` is 0 for the thread starter, non-zero otherwise.
+        """
+        url = f"{self.base_url}/mod/forum/discuss.php"
+        resp = self._session.get(url, params={"d": int(discussion_id)})
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired while loading discussion {discussion_id}.\n{_SESSION_EXPIRED}")
+        if resp.status_code == 404:
+            raise RuntimeError(f"Discussion {discussion_id} not found.")
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        posts: list[ForumPost] = []
+        # Modern Moodle wraps each post in <article data-post-id="..."> inside
+        # a container with data-region="post-*". Older themes use div.forumpost.
+        post_nodes = soup.find_all("article", attrs={"data-post-id": True})
+        if not post_nodes:
+            post_nodes = soup.find_all(attrs={"data-region": "post"})
+        if not post_nodes:
+            post_nodes = soup.find_all(class_="forumpost")
+
+        for node in post_nodes:
+            post_id_raw = _attr(node, "data-post-id") or _attr(node, "id").replace("p", "")
+            post_id = _json_int(post_id_raw)
+            parent_id = _json_int(_attr(node, "data-parent-post-id") or _attr(node, "data-parent"))
+
+            # Subject
+            subj_el = (
+                node.find(attrs={"data-region-content": "subject"})
+                or node.find(class_="subject")
+                or node.find("h3")
+                or node.find("h4")
+            )
+            subject = subj_el.get_text(strip=True) if subj_el else ""
+
+            # Author
+            author_el = (
+                node.find(attrs={"data-region": "author-name"})
+                or node.find(class_="author")
+            )
+            author_fullname = author_el.get_text(strip=True) if author_el else ""
+            # Strip trailing "by " prefix Moodle sometimes adds.
+            author_fullname = re.sub(r"^by\s+", "", author_fullname, flags=re.IGNORECASE)
+
+            # Posted time
+            time_el = node.find("time") or node.find(class_="time")
+            timecreated_str = ""
+            timecreated = 0
+            if time_el is not None:
+                dt_attr = _attr(time_el, "datetime")
+                if dt_attr:
+                    try:
+                        ts = datetime.fromisoformat(dt_attr.replace("Z", "+00:00"))
+                        timecreated = int(ts.timestamp())
+                        timecreated_str = ts.strftime("%Y-%m-%d %H:%M")
+                    except ValueError:
+                        timecreated_str = time_el.get_text(strip=True)
+                else:
+                    timecreated_str = time_el.get_text(strip=True)
+
+            # Body
+            body_el = (
+                node.find(attrs={"data-region": "post-content-container"})
+                or node.find(class_="post-content-container")
+                or node.find(class_="posting")
+                or node.find(class_="text_to_html")
+            )
+            if body_el is None:
+                # Fallback — strip subject/author/time from the article text.
+                for strip in [subj_el, author_el, time_el]:
+                    if strip is not None:
+                        strip.decompose()
+                message = node.get_text(separator="\n", strip=True)
+            else:
+                message = body_el.decode_contents()
+
+            post: ForumPost = {
+                "id": post_id,
+                "discussionid": int(discussion_id),
+                "parentid": parent_id,
+                "subject": subject,
+                "message": message.strip(),
+                "messageformat": 1,
+                "timecreated": timecreated,
+                "timecreated_str": timecreated_str,
+                "author_fullname": author_fullname,
+            }
+            posts.append(post)
+        return posts
+
+    def get_discussion_root_post_id(self, discussion_id: int) -> int:
+        """Return the id of a discussion's root (first) post."""
+        for p in self.get_discussion_posts(discussion_id):
+            if not p.get("parentid"):  # 0 → root
+                pid = p.get("id")
+                if pid:
+                    return pid
+        raise RuntimeError(f"No root post found for discussion {discussion_id}")
+
+    def delete_discussion(self, discussion_id: int) -> None:
+        """Delete a forum discussion by deleting its root post.
+
+        Uses /mod/forum/post.php?delete=POSTID — AJAX `mod_forum_delete_post`
+        isn't registered on every Moodle install, so scraping the UI delete
+        flow is the portable path.
+        """
+        post_id = self.get_discussion_root_post_id(discussion_id)
+        url = f"{self.base_url}/mod/forum/post.php"
+        # Confirm step: POST with delete=ID, sesskey, confirm=ID
+        resp = self._post_form(
+            url,
+            {"delete": str(post_id), "confirm": str(post_id), "sesskey": self.sesskey},
+            referer=f"{url}?delete={post_id}",
+        )
+        if resp.status_code == 404:
+            raise RuntimeError(f"/mod/forum/post.php returned 404 when deleting post {post_id}")
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired while deleting discussion {discussion_id}.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for el in soup.find_all(class_=["alert-danger", "error"]):
+            text = el.get_text(separator=" ", strip=True)
+            if text:
+                raise RuntimeError(f"Moodle refused to delete post {post_id}: {text}")
+
+    def update_discussion(self, discussion_id: int, subject: str, message: str) -> None:
+        """Edit a discussion's first post (subject + HTML message).
+
+        Scrapes /mod/forum/post.php?edit=POSTID, patches the subject/message
+        fields, POSTs the form back. Other fields (mail_now, attachments) are
+        left as-is.
+        """
+        post_id = self.get_discussion_root_post_id(discussion_id)
+        get_url = f"{self.base_url}/mod/forum/post.php"
+        resp_get = self._session.get(get_url, params={"edit": post_id})
+        if "login" in resp_get.url:
+            raise RuntimeError(f"Session expired while loading post {post_id}.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp_get.text, "html.parser")
+        forms = soup.find_all("form")
+        if not forms:
+            raise RuntimeError(f"post.php?edit={post_id} returned no form")
+        form = max(forms, key=lambda f: len(f.find_all(["input", "select", "textarea"])))
+
+        data: dict[str, str] = {}
+        for el in form.find_all(["input", "select", "textarea"]):
+            name = _attr(el, "name")
+            if not name:
+                continue
+            tag = el.name
+            input_type = _attr(el, "type", "text").lower()
+            if input_type == "submit":
+                continue
+            if tag == "select":
+                selected = el.find("option", selected=True)
+                data[name] = _attr(selected, "value") if selected else ""
+            elif tag == "textarea":
+                data[name] = el.get_text()
+            elif input_type == "checkbox":
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value", "1")
+            elif input_type == "radio":
+                if el.get("checked") is not None:
+                    data[name] = _attr(el, "value")
+            else:
+                data[name] = _attr(el, "value")
+
+        data["subject"] = subject
+        data["message[text]"] = message
+        data["message[format]"] = "1"  # HTML
+        resp = self._post_form(get_url, data, referer=f"{get_url}?edit={post_id}")
+        if "post.php" in resp.url and resp.status_code == 200:
+            soup2 = BeautifulSoup(resp.text, "html.parser")
+            for el in soup2.find_all(class_=["alert-danger", "formerror", "error"]):
+                text = el.get_text(separator=" ", strip=True)
+                if text:
+                    raise RuntimeError(f"Moodle rejected edit of post {post_id}: {text}")
+
+    def list_forum_discussions(self, forum_cmid: Cmid, limit: int = 20) -> list[Discussion]:
+        """Scrape /mod/forum/view.php for recent discussions (no webservices).
+
+        Walks the forum view page to enumerate discussion ids, then fetches
+        /mod/forum/discuss.php for each to populate subject/author/time. This
+        is O(N+1) HTTP requests but works on Moodle installs where forum
+        webservices are disabled.
+
+        Returns an empty list (not an error) when the forum is empty or when
+        the theme renders discussions purely via client-side JS.
+        """
+        ids = sorted(self._snapshot_discussion_ids(forum_cmid))
+        if not ids:
+            return []
+        out: list[Discussion] = []
+        for did in ids[-limit:][::-1]:  # newest-id first, capped at limit
+            try:
+                posts = self.get_discussion_posts(did)
+            except RuntimeError:
+                continue
+            if not posts:
+                continue
+            root = posts[0]
+            out.append(Discussion(
+                id=did,
+                name=root.get("subject", ""),
+                userfullname=root.get("author_fullname", ""),
+                timemodified=root.get("timecreated_str", ""),
+                pinned=False,  # not reliably detectable without JS/webservice
+                message=root.get("message", ""),
+            ))
+        return out
+
     # ── Course content ────────────────────────────────────────────────────────
 
     def get_course_sections(self, course_id: CourseId, fetch_settings: bool = False) -> list[CourseSection]:
@@ -1313,7 +1701,8 @@ class MoodleAPI(MoodleClientBase):
         import requests
         s = requests.Session()
         for ck in self._session.cookies:
-            s.cookies.set(ck.name, ck.value)
+            if ck.value is not None:
+                s.cookies.set(ck.name, ck.value)
         s.headers.update({
             "User-Agent": self._session.headers["User-Agent"],
             "Referer": f"{self.base_url}/course/modedit.php",

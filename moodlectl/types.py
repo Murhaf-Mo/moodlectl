@@ -78,6 +78,33 @@ class CourseSection(TypedDict):
     modules: list[CourseModule]
 
 
+class Discussion(TypedDict):
+    id: int  # forum discussion id
+    name: str  # subject line
+    userfullname: str  # author display name
+    timemodified: str  # ISO-ish datetime string
+    pinned: bool
+    message: str  # HTML body of the first post
+
+
+class ForumPost(TypedDict, total=False):
+    """A single post inside a forum discussion (mod_forum_get_discussion_posts).
+
+    total=False because Moodle's response shape varies by version and post
+    position. Fields we rely on (id, parentid, subject, message, timecreated,
+    author_fullname) are populated by _normalise_forum_post in client/api.py.
+    """
+    id: int
+    discussionid: int
+    parentid: int
+    subject: str
+    message: str
+    messageformat: int
+    timecreated: int  # unix timestamp
+    timecreated_str: str  # formatted "YYYY-MM-DD HH:MM"
+    author_fullname: str
+
+
 class Participant(TypedDict):
     id: UserId
     fullname: str
@@ -362,3 +389,26 @@ class MoodleClientProtocol(Protocol):
     def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
 
     def update_course(self, course_id: CourseId, changes: dict[str, str]) -> None: ...
+
+    def resolve_forum_instance(self, cmid: Cmid) -> int: ...
+
+    def post_forum_discussion(
+            self,
+            forum_cmid: Cmid,
+            subject: str,
+            message: str,
+            mail_now: bool = True,
+            pinned: bool = False,
+            subscribe: bool = True,
+            message_format: int = 1,
+            group_id: int = -1,
+            attachment_paths: list[str] | None = None,
+    ) -> int: ...
+
+    def list_forum_discussions(self, forum_cmid: Cmid, limit: int = 20) -> list[Discussion]: ...
+
+    def get_discussion_posts(self, discussion_id: int) -> list[ForumPost]: ...
+
+    def delete_discussion(self, discussion_id: int) -> None: ...
+
+    def update_discussion(self, discussion_id: int, subject: str, message: str) -> None: ...
