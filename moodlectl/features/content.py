@@ -150,12 +150,14 @@ def create_module(
         modname: str,
         name: str,
         settings: dict[str, Any] | None = None,
+        file_path: str | None = None,
 ) -> Cmid:
     """Create a new module and return its cmid.
 
     modname is the Moodle activity plugin name (label, page, url, assign, quiz, ...).
     name is required for everything except labels (where the content body is the display).
     settings is the curated settings dict (same keys accepted by `content set`).
+    file_path uploads a local file into the module's draft area — only valid for `resource`.
     """
     modname = modname.strip().lower()
     if modname not in _VALID_MODNAMES:
@@ -163,13 +165,17 @@ def create_module(
             f"Unknown module type {modname!r}. "
             f"Supported: {', '.join(sorted(_VALID_MODNAMES))}"
         )
+    if file_path and modname != "resource":
+        raise ValueError(f"--file is only valid for resource modules, not {modname!r}")
     name = (name or "").strip()
-    if not name and modname != "label":
+    if not name and modname != "label" and not file_path:
         raise ValueError(f"--name is required for {modname} modules")
     sections = client.get_course_sections(course_id)
     if not any(s["number"] == section_num for s in sections):
         raise ValueError(f"Section {section_num} not found in course {course_id}")
-    return client.create_module(course_id, section_num, modname, name, settings or {})
+    return client.create_module(
+        course_id, section_num, modname, name, settings or {}, file_path=file_path,
+    )
 
 
 def set_module_setting(

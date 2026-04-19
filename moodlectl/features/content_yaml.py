@@ -26,6 +26,9 @@ _HEADER = """\
 # Read-only:  course_id, section id/number, module cmid/type/description/due_date
 # To reorder: change the order of modules or sections — push detects and applies moves
 # To add/del: use Moodle web UI — push warns but never auto-deletes
+# To add:     append a module entry with no cmid (or cmid: new). For resource
+#             modules you may add `file: /absolute/path/to/file.pdf` to upload
+#             a local file during push.
 # Dates use 'YYYY-MM-DD HH:MM' format
 """
 
@@ -127,6 +130,7 @@ class Change:
     section_num: int | None = None  # CREATE_MODULE only: 0-indexed section number
     new_name: str = ""  # CREATE_MODULE only
     new_settings: dict[str, Any] | None = None  # CREATE_MODULE only
+    new_file_path: str | None = None  # CREATE_MODULE for resource with file upload
 
 
 def _compute_section_moves(desired: list[SectionId], current: list[SectionId]) -> list[tuple[SectionId, SectionId]]:
@@ -340,18 +344,29 @@ def diff(
                 new_type = str(yaml_mod.get("type", "")).strip()
                 new_name = str(yaml_mod.get("name", "")).strip()
                 new_settings = yaml_mod.get("settings") or {}
+                new_file = yaml_mod.get("file")
                 if not new_type:
                     warnings.append(f"section {sec_id}: skipping module with no 'type' field")
                     continue
+                if new_file and new_type != "resource":
+                    warnings.append(
+                        f"section {sec_id}: 'file:' ignored on {new_type!r} module "
+                        f"(only supported for resource)"
+                    )
+                    new_file = None
                 sec_num_for_create = live_sec["number"]
+                label = f"section {sec_id}: create {new_type} {new_name!r}"
+                if new_file:
+                    label += f" (file: {new_file})"
                 changes.append(Change(
                     kind="CREATE_MODULE",
-                    label=f"section {sec_id}: create {new_type} {new_name!r}",
+                    label=label,
                     course_id=course_id,
                     section_num=sec_num_for_create,
                     modname=new_type,
                     new_name=new_name,
                     new_settings=dict(new_settings) if isinstance(new_settings, dict) else {},
+                    new_file_path=str(new_file) if new_file else None,
                 ))
                 continue
             cmid = Cmid(int(raw_cmid))
@@ -575,6 +590,7 @@ def _apply_change(client: MoodleClientProtocol, change: Change) -> None:
         client.create_module(
             change.course_id, change.section_num, change.modname,
             change.new_name, change.new_settings or {},
+            file_path=change.new_file_path,
         )
     elif (
             change.kind == "MOVE_MODULE"

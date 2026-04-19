@@ -489,6 +489,53 @@ def _build_module_settings_dynamic(form: dict[str, str]) -> dict[str, Any]:  # p
     return result
 
 
+def _parse_modedit_form(soup: BeautifulSoup, origin: str) -> dict[str, str]:
+    """Extract all form fields (hidden + visible) from a modedit.php page soup.
+
+    `origin` is a human-readable hint used only in error messages.
+    """
+    forms = soup.find_all("form")
+    if not forms:
+        raise RuntimeError(
+            f"modedit.php returned no form for {origin}. "
+            f"Module type may be unavailable in this course."
+        )
+    form = max(forms, key=lambda f: len(f.find_all(["input", "select", "textarea"])))
+
+    data: dict[str, str] = {}
+    for el in form.find_all(["input", "select", "textarea"]):
+        name = _attr(el, "name")
+        if not name:
+            continue
+        tag = el.name
+        input_type = _attr(el, "type", "text").lower()
+        if input_type == "submit":
+            continue
+        if tag == "select":
+            if el.get("multiple") is not None:
+                selected_opts = el.find_all("option", selected=True)
+                base = name.rstrip("[]")
+                if selected_opts:
+                    for i, opt in enumerate(selected_opts):
+                        data[f"{base}[{i}]"] = _attr(opt, "value")
+            else:
+                selected = el.find("option", selected=True)
+                data[name] = _attr(selected, "value") if selected else ""
+        elif tag == "textarea":
+            data[name] = el.get_text()
+        elif input_type == "checkbox":
+            if el.get("checked") is not None:
+                data[name] = _attr(el, "value", "1")
+        elif input_type == "radio":
+            if el.get("checked") is not None:
+                data[name] = _attr(el, "value")
+        else:
+            data[name] = _attr(el, "value")
+
+    data["submitbutton2"] = "Save and return to course"
+    return data
+
+
 class MoodleAPI(MoodleClientBase):
 
     def _get_soup(self, url: str, params: dict[str, str | int] | None = None, context: str = "") -> BeautifulSoup:
@@ -1232,47 +1279,69 @@ class MoodleAPI(MoodleClientBase):
         if "login" in resp.url:
             raise RuntimeError(f"Session expired while loading modedit form.\n{_SESSION_EXPIRED}")
         soup = BeautifulSoup(resp.text, "html.parser")
+        return _parse_modedit_form(soup, str(params))
 
-        forms = soup.find_all("form")
-        if not forms:
-            raise RuntimeError(
-                f"modedit.php returned no form for params={params}. "
-                f"Module type may be unavailable in this course."
+    def _upload_to_draft(self, soup: BeautifulSoup, draft_itemid: str, file_path: str) -> None:
+        """Upload a local file to a Moodle draft area.
+
+        Discovers the upload repo_id and course/user context from the embedded
+        filepicker config, then POSTs multipart to /repository/repository_ajax.php.
+        """
+        import os
+
+        html = str(soup)
+        m = re.search(
+            r'\{[^{}]*?"type"\s*:\s*"upload"[^{}]*?"id"\s*:\s*"?(\d+)',
+            html,
+        ) or re.search(
+            r'\{[^{}]*?"id"\s*:\s*"?(\d+)"?[^{}]*?"type"\s*:\s*"upload"',
+            html,
+        )
+        if not m:
+            raise RuntimeError("Could not find 'upload' repository id in modedit page.")
+        repo_id = m.group(1)
+
+        ctx_match = re.search(r'"contextid"\s*:\s*"?(\d+)', html)
+        ctx_id = ctx_match.group(1) if ctx_match else ""
+
+        if not os.path.isfile(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        filename = os.path.basename(file_path)
+        # Use a clean requests session — the shared session has Content-Type:
+        # application/json, which breaks the multipart upload.
+        import requests
+        s = requests.Session()
+        for ck in self._session.cookies:
+            s.cookies.set(ck.name, ck.value)
+        s.headers.update({
+            "User-Agent": self._session.headers["User-Agent"],
+            "Referer": f"{self.base_url}/course/modedit.php",
+        })
+        with open(file_path, "rb") as f:
+            files = {"repo_upload_file": (filename, f, "application/octet-stream")}
+            data = {
+                "sesskey": self.sesskey,
+                "repo_id": repo_id,
+                "itemid": str(draft_itemid),
+                "savepath": "/",
+                "title": filename,
+                "ctx_id": ctx_id,
+                "license": "unknown",
+                "author": "",
+            }
+            resp = s.post(
+                f"{self.base_url}/repository/repository_ajax.php?action=upload",
+                data=data, files=files,
             )
-        form = max(forms, key=lambda f: len(f.find_all(["input", "select", "textarea"])))
-
-        data: dict[str, str] = {}
-        for el in form.find_all(["input", "select", "textarea"]):
-            name = _attr(el, "name")
-            if not name:
-                continue
-            tag = el.name
-            input_type = _attr(el, "type", "text").lower()
-            if input_type == "submit":
-                continue
-            if tag == "select":
-                if el.get("multiple") is not None:
-                    selected_opts = el.find_all("option", selected=True)
-                    base = name.rstrip("[]")
-                    if selected_opts:
-                        for i, opt in enumerate(selected_opts):
-                            data[f"{base}[{i}]"] = _attr(opt, "value")
-                else:
-                    selected = el.find("option", selected=True)
-                    data[name] = _attr(selected, "value") if selected else ""
-            elif tag == "textarea":
-                data[name] = el.get_text()
-            elif input_type == "checkbox":
-                if el.get("checked") is not None:
-                    data[name] = _attr(el, "value", "1")
-            elif input_type == "radio":
-                if el.get("checked") is not None:
-                    data[name] = _attr(el, "value")
-            else:
-                data[name] = _attr(el, "value")
-
-        data["submitbutton2"] = "Save and return to course"
-        return data
+        if resp.status_code != 200:
+            raise RuntimeError(f"Draft upload failed: HTTP {resp.status_code} {resp.text[:200]}")
+        try:
+            result = resp.json()
+        except ValueError:
+            raise RuntimeError(f"Draft upload returned non-JSON: {resp.text[:200]}")
+        if isinstance(result, dict) and result.get("error"):
+            raise RuntimeError(f"Draft upload rejected: {result['error']}")
 
     def get_module_form(self, cmid: Cmid) -> dict[str, str]:
         """Scrape the modedit.php edit form for a module and return all field values.
@@ -1289,6 +1358,7 @@ class MoodleAPI(MoodleClientBase):
             modname: str,
             name: str,
             settings: dict[str, Any] | None = None,
+            file_path: str | None = None,
     ) -> Cmid:
         """Create a new course module.
 
@@ -1296,14 +1366,36 @@ class MoodleAPI(MoodleClientBase):
         modname     — Moodle module type (label, page, url, forum, assign, quiz, resource, ...).
         name        — human-readable module name (ignored by labels, which use the intro).
         settings    — optional dict of curated settings (see _SETTINGS_SCHEMA).
+        file_path   — local file to upload for `resource` (and any other filemanager-
+                      backed module). The file is pushed into the form's draft area
+                      before the form is POSTed.
 
         Returns the cmid of the newly created module.
         """
         get_url = f"{self.base_url}/course/modedit.php"
-        form_data = self._scrape_modedit_form({
+        get_params = {
             "add": modname, "type": "", "course": int(course_id),
             "section": section_num, "return": 0, "sr": 0,
-        })
+        }
+        resp_get = self._session.get(get_url, params=get_params)
+        if "login" in resp_get.url:
+            raise RuntimeError(f"Session expired while loading modedit form.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp_get.text, "html.parser")
+        form_data = _parse_modedit_form(soup, f"add={modname}")
+
+        if file_path:
+            if modname != "resource":
+                raise ValueError(
+                    f"file_path is only supported for 'resource' modules, not {modname!r}."
+                )
+            draft_itemid = form_data.get("files")
+            if not draft_itemid:
+                raise RuntimeError("modedit form has no 'files' draft itemid — cannot upload.")
+            self._upload_to_draft(soup, draft_itemid, file_path)
+            if not name:
+                import os
+                name = os.path.splitext(os.path.basename(file_path))[0]
+            form_data["name"] = name
 
         if name and "name" in form_data:
             form_data["name"] = name

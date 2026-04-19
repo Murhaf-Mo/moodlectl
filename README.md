@@ -204,11 +204,15 @@ moodlectl content set      --course 51 --cmid 960 --field description --value "<
 moodlectl content create --course 83 --section 1 --type label --set content='<p>Week 1</p>'
 moodlectl content create --course 83 --section 2 --type url --name "Syllabus" --set external_url=https://example.com
 moodlectl content create --course 83 --section 3 --type assign --name "Homework 1" --set due_date="2026-06-01 23:59" --set grading_due="2026-06-08 23:59" --set max_grade=10
+moodlectl content create --course 83 --section 9 --type resource --file "CH6.pdf"  # upload a local file
 moodlectl content create --course 83 --from-yaml new_modules.yaml   # bulk create
 ```
 
 `--set key=value` is repeatable and accepts any field from `content settings`. `--name` is required for every type
-except `label`. New modules are appended to the target section — use `content push` afterwards to reorder.
+except `label` (and `resource` when `--file` is given — the filename is used). New modules are appended to the target
+section — use `content push` afterwards to reorder.
+
+`--file` uploads a local file into the resource's draft area before the module is created. Only valid for `resource`.
 
 **Editable fields by type:**
 
@@ -240,6 +244,10 @@ entries in the YAML to reorder modules/sections. Modules removed from the YAML a
   name: New link      # required except for label
   settings:
     external_url: https://example.com
+
+- type: resource                             # upload a local file
+  name: Chapter 6 — SQL syntax               # optional; defaults to the filename
+  file: C:\Users\me\Downloads\CH6.pdf        # absolute path on your machine
 ```
 
 Works both in `content push` (alongside edits/reorders) and standalone via `content create --from-yaml`. Accepts either

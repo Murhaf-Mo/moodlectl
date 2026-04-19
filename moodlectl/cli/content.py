@@ -386,6 +386,9 @@ def create_module(
                                                  help="Settings override as key=value (repeatable): --set due_date='2026-05-01 23:59' --set max_grade=20"),
         from_yaml: Optional[str] = typer.Option(None, "--from-yaml", "-f",
                                                 help="YAML file: single module mapping, or a list of mappings, each with: section, type, name, settings."),
+        file: Optional[str] = typer.Option(None, "--file",
+                                           help="Path to a local file to upload (resource modules only). "
+                                                "Name defaults to the filename if --name is omitted."),
 ) -> None:
     """Create one or more new modules in a course.
 
@@ -431,6 +434,7 @@ def create_module(
             "type": type_,
             "name": name or "",
             "settings": settings_dict,
+            "file": file,
         }]
 
     client = MoodleClient.from_config(Config.load())
@@ -441,6 +445,7 @@ def create_module(
         modname = spec.get("type")
         mod_name = spec.get("name", "")
         mod_settings = spec.get("settings") or {}
+        mod_file = spec.get("file")
         if sec_num is None or modname is None:
             console.print(f"[red]Skipped entry — missing 'section' or 'type': {spec}[/red]")
             continue
@@ -448,6 +453,7 @@ def create_module(
             new_cmid = content_feature.create_module(
                 client, CourseId(course), int(sec_num), str(modname),
                 str(mod_name), dict(mod_settings),
+                file_path=str(mod_file) if mod_file else None,
             )
         except (RuntimeError, ValueError) as exc:
             console.print(f"[red]Error creating {modname} {mod_name!r}:[/red] {exc}")

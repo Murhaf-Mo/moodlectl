@@ -356,6 +356,7 @@ class MoodleClientProtocol(Protocol):
             modname: str,
             name: str,
             settings: dict[str, Any] | None = None,
+            file_path: str | None = None,
     ) -> Cmid: ...
 
     def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
