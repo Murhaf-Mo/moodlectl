@@ -19,9 +19,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -53,9 +53,9 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -73,7 +73,7 @@ jobs:
             installer\moodlectl.iss
 
       - name: Upload Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: windows-installer
           path: installer/Output/moodlectl-setup.exe
@@ -84,9 +84,9 @@ jobs:
     runs-on: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -102,7 +102,7 @@ jobs:
           tar -czf moodlectl-macos.tar.gz moodlectl/
 
       - name: Upload macOS binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: macos-binary
           path: dist/moodlectl-macos.tar.gz
@@ -113,12 +113,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: windows-installer
           path: ./artifacts
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: macos-binary
           path: ./artifacts
