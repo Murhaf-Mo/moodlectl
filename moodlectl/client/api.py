@@ -1469,11 +1469,20 @@ class MoodleAPI(MoodleClientBase):
             )
         return max(candidates, key=lambda m: int(m["cmid"]))["cmid"]
 
-    def update_module(self, cmid: Cmid, changes: dict[str, str]) -> None:
+    def update_module(
+            self,
+            cmid: Cmid,
+            changes: dict[str, str],
+            rescale: str = "no",
+    ) -> None:
         """Apply field changes to a module via the modedit.php form.
 
         Scrapes the form fresh (to get current values and a valid draft itemid),
         merges `changes`, then POSTs. Raises RuntimeError if Moodle reports an error.
+
+        rescale — when `max_grade` is among `changes` and the activity already
+        has awarded grades, Moodle demands a "rescale existing grades?" choice.
+        "no" keeps existing grades as-is; "yes" rescales them to the new max.
         """
         get_url = f"{self.base_url}/course/modedit.php"
         form_data = self.get_module_form(cmid)
@@ -1487,6 +1496,8 @@ class MoodleAPI(MoodleClientBase):
                 form_data[f"{key}[enabled]"] = ""
             else:
                 form_data[key] = val
+        if "grade[modgrade_point]" in changes:
+            form_data["grade[modgrade_rescalegrades]"] = rescale
         resp = self._post_form(f"{self.base_url}/course/modedit.php", form_data, referer=get_url)
         if resp.status_code == 404:
             import tempfile

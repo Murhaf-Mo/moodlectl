@@ -612,10 +612,22 @@ def push_content(
                 desc = label[:_DESC_WIDTH].ljust(_DESC_WIDTH)
                 prog.update(task, completed=current, description=f"[cyan]{desc}[/cyan]")
 
+            def _ask_rescale(cmid: Cmid, label: str) -> str:
+                prog.stop()
+                try:
+                    answer = typer.confirm(
+                        f"{label}: rescale existing grades to the new max_grade?",
+                        default=False,
+                    )
+                finally:
+                    prog.start()
+                return "yes" if answer else "no"
+
             failures = content_yaml.push(
                 client, changes,
                 progress=_on_push_progress,
                 continue_on_error=continue_on_error,
+                rescale_prompt=_ask_rescale,
             )
     except Exception as exc:
         console.print("\n[red bold]Error during push[/red bold]")

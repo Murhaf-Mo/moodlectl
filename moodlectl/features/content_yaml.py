@@ -15,6 +15,8 @@ from moodlectl.types import Cmid, CourseId, MoodleClientProtocol, SectionId
 
 # Progress callback type: (current, total, description) -> None
 ProgressCb = Callable[[int, int, str], None]
+# Rescale-grades prompt: (cmid, label) -> "yes" | "no"
+RescaleCb = Callable[[Cmid, str], str]
 
 # ---------------------------------------------------------------------------
 # Serialisation helpers
@@ -505,6 +507,7 @@ def push(
         changes: list[Change],
         progress: ProgressCb | None = None,
         continue_on_error: bool = False,
+        rescale_prompt: RescaleCb | None = None,
 ) -> list[tuple[Change, str]]:
     """Apply a list of Change objects to Moodle.
 
@@ -526,7 +529,7 @@ def push(
         if progress:
             progress(idx, total, change.label)
         try:
-            _apply_change(client, change)
+            _apply_change(client, change, rescale_prompt)
         except Exception as exc:
             detail_lines = [
                 f"change {idx}/{total} failed",
@@ -553,7 +556,11 @@ def push(
     return failures
 
 
-def _apply_change(client: MoodleClientProtocol, change: Change) -> None:
+def _apply_change(
+        client: MoodleClientProtocol,
+        change: Change,
+        rescale_prompt: RescaleCb | None = None,
+) -> None:
     """Dispatch a single change to the appropriate client method."""
     if change.kind == "RENAME_MODULE" and change.cmid is not None:
         client.rename_module(change.cmid, str(change.value))
@@ -570,7 +577,10 @@ def _apply_change(client: MoodleClientProtocol, change: Change) -> None:
     elif change.kind == "UPDATE_MODULE" and change.cmid is not None and isinstance(change.value, dict):
         from moodlectl.client.api import _settings_to_form
         form_changes = _settings_to_form(change.modname, change.value)
-        client.update_module(change.cmid, form_changes)
+        rescale = "no"
+        if rescale_prompt is not None and "max_grade" in change.value:
+            rescale = rescale_prompt(change.cmid, change.label)
+        client.update_module(change.cmid, form_changes, rescale=rescale)
     elif change.kind == "UPDATE_COURSE" and change.course_id is not None and isinstance(change.value, dict):
         from moodlectl.client.api import _course_settings_to_form
         form_changes = _course_settings_to_form(change.value)
