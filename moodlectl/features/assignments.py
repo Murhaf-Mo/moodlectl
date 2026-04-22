@@ -390,6 +390,7 @@ def download_submissions(
         status: AssignmentStatus = "all",
         out_dir: Path = Path("assignments"),
         ungraded_only: bool = False,
+        user_ids: list[int] | None = None,
 ) -> list[DownloadResult]:
     """Download submitted files for all assignments in the given courses.
 
@@ -398,8 +399,11 @@ def download_submissions(
         {out_dir}/{course_short}/{active|past}/{assignment}/{student_name_id}/file
 
     Pass ungraded_only=True to skip already-graded submissions.
+    Pass user_ids to restrict to specific student IDs (skips assignments
+    with no matching submitters).
     Returns a list of result records (one per student-submission).
     """
+    user_id_set = set(user_ids) if user_ids else None
     from rich.console import Console
     from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn
 
@@ -464,6 +468,8 @@ def download_submissions(
 
             if ungraded_only:
                 submissions = [s for s in submissions if is_ungraded(s)]
+            if user_id_set is not None:
+                submissions = [s for s in submissions if s["user_id"] in user_id_set]
 
             for sub in submissions:
                 uid = sub["user_id"]

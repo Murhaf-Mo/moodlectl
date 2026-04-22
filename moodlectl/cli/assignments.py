@@ -448,6 +448,10 @@ def download_submissions(
         out: Path = typer.Option(Path("assignments"), "--out", help="Output directory (default: ./assignments)."),
         ungraded: bool = typer.Option(False, "--ungraded",
                                       help="Download only submissions that have not been graded yet."),
+        user: list[int] = typer.Option(
+            None, "--user", "-u",
+            help="User ID (repeatable). Only download files submitted by these users."
+        ),
 ):
     """Download submitted assignment files, organised by course and status.
 
@@ -456,12 +460,14 @@ def download_submissions(
 
     Instructor-attached brief files are saved to a _brief/ subfolder.
     Use --ungraded to only download files from students who still need grading.
+    Use --user to restrict to specific students (e.g. for plagiarism comparisons).
 
     Examples:
       moodlectl assignments download
       moodlectl assignments download --course 568 --status active
       moodlectl assignments download --course 568 --status past --out ./archive
       moodlectl assignments download --ungraded
+      moodlectl assignments download --course 581 --user 1542 --user 1481
     """
     client, course_ids, course_map = _load(tuple(course or []))
 
@@ -472,4 +478,5 @@ def download_submissions(
         status=cast(AssignmentStatus, status),
         out_dir=out,
         ungraded_only=ungraded,
+        user_ids=list(user) if user else None,
     )

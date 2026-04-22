@@ -132,6 +132,7 @@ moodlectl assignments remind-all --status active --text "Deadline approaching!" 
 moodlectl assignments download                         # all submitted files
 moodlectl assignments download --course 51 --status active --out ./archive
 moodlectl assignments download --ungraded              # only files still to grade
+moodlectl assignments download --course 51 --user 1542 --user 1481   # specific students
 ```
 
 Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land
