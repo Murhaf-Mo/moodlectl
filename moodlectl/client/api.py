@@ -1080,6 +1080,263 @@ class MoodleAPI(MoodleClientBase):
 
         return grade_max
 
+    # ── Question bank: lookup + quiz wiring ───────────────────────────────────
+
+    def list_question_categories(self, course_id: CourseId) -> list[dict[str, Any]]:
+        """Return every question category visible from the course, with counts.
+
+        Each entry: {"id", "context_id", "name", "count", "depth"}.
+        `depth` is the nesting level (1 = top-level under the context root).
+        """
+        resp = self._session.get(
+            f"{self.base_url}/question/bank/managecategories/category.php",
+            params={"courseid": int(course_id)},
+        )
+        resp.raise_for_status()
+        if "/login/index.php" in resp.url:
+            raise RuntimeError("Session expired. Run `moodlectl auth login`.")
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        out: list[dict[str, Any]] = []
+        for a in soup.find_all("a", href=True):
+            href = str(a.get("href") or "")
+            if "edit.php" not in href:
+                continue
+            m = re.search(r"cat=(\d+)(?:%2C|,)(\d+)", href)
+            if not m:
+                continue
+            text = a.get_text(strip=True)
+            count_match = re.search(r"\((\d+)\)\s*$", text)
+            count = int(count_match.group(1)) if count_match else 0
+            name = re.sub(r"\s*\(\d+\)\s*$", "", text).strip()
+
+            # Nesting depth = number of <ul> ancestors of the enclosing <li>.
+            depth = 0
+            node = a.find_parent("li")
+            while node is not None:
+                node = node.find_parent("ul")
+                if node is None:
+                    break
+                depth += 1
+
+            out.append({
+                "id": int(m.group(1)),
+                "context_id": int(m.group(2)),
+                "name": name,
+                "count": count,
+                "depth": depth,
+            })
+        return out
+
+    def list_questions_in_category(
+            self, course_id: CourseId, category_id: int, context_id: int,
+    ) -> list[dict[str, Any]]:
+        """Return one entry per question in the category.
+
+        Each entry: {"id", "name", "type", "status", "usage", "last_used"}.
+        """
+        resp = self._session.get(
+            f"{self.base_url}/question/edit.php",
+            params={
+                "courseid": int(course_id),
+                "cat": f"{int(category_id)},{int(context_id)}",
+                "qperpage": 1000,
+            },
+        )
+        resp.raise_for_status()
+        if "/login/index.php" in resp.url:
+            raise RuntimeError("Session expired.")
+
+        out: list[dict[str, Any]] = []
+        seen: set[int] = set()
+        for tr_match in re.finditer(
+            r'<tr[^>]*class="r[01]"[^>]*>(.*?)</tr>', resp.text, re.DOTALL,
+        ):
+            row = tr_match.group(0)
+            qid_match = re.search(r'data-questionid="(\d+)"', row)
+            if not qid_match:
+                continue
+            qid = int(qid_match.group(1))
+            if qid in seen:
+                continue
+            seen.add(qid)
+
+            entry: dict[str, Any] = {
+                "id": qid, "name": "", "type": "",
+                "status": "", "usage": 0, "last_used": "",
+            }
+            for td in re.finditer(
+                r'<td[^>]*data-columnid="([^"]+)"[^>]*>(.*?)</td>',
+                row, re.DOTALL,
+            ):
+                col = td.group(1)
+                body = td.group(2)
+                if "question_type_column" in col:
+                    img = re.search(r'<img[^>]*alt="([^"]+)"', body)
+                    if img:
+                        entry["type"] = img.group(1)
+                else:
+                    import html as _html
+                    flat = re.sub(r"<[^>]+>", " ", body)
+                    flat = _html.unescape(re.sub(r"\s+", " ", flat).strip())
+                    if "question_name" in col:
+                        entry["name"] = flat
+                    elif "question_status_column" in col:
+                        # The cell renders both "Ready" and "Draft" — first word is the active value.
+                        entry["status"] = flat.split(" ")[0] if flat else ""
+                    elif "question_usage_column" in col:
+                        entry["usage"] = int(flat) if flat.isdigit() else 0
+                    elif "question_last_used_column" in col:
+                        entry["last_used"] = flat
+            out.append(entry)
+        return out
+
+    def find_question_category(self, course_id: CourseId, name: str) -> tuple[int, int]:
+        """Return (categoryid, contextid) for the question category with the given name.
+
+        Scrapes /question/bank/managecategories/category.php?courseid=X.
+        Each category is rendered as an <a href="...&cat=<catid>,<ctxid>">Name (N)</a>.
+        Match is case-sensitive, on the trimmed text with the trailing "(count)"
+        stripped.
+        """
+        resp = self._session.get(
+            f"{self.base_url}/question/bank/managecategories/category.php",
+            params={"courseid": int(course_id)},
+        )
+        resp.raise_for_status()
+        if "/login/index.php" in resp.url:
+            raise RuntimeError("Session expired. Run `moodlectl auth login`.")
+        target = name.strip()
+        for m in re.finditer(
+            r'href="[^"]*cat=(\d+)(?:%2C|,)(\d+)[^"]*"[^>]*>\s*([^<]+?)\s*</a>',
+            resp.text,
+        ):
+            cat_id, ctx_id, text = m.group(1), m.group(2), m.group(3)
+            clean = re.sub(r"\s*\(\d+\)\s*$", "", text).strip()
+            if clean == target:
+                return int(cat_id), int(ctx_id)
+        raise RuntimeError(
+            f"Question category {name!r} not found in course {course_id}'s question bank."
+        )
+
+    def delete_question_category(
+            self, course_id: CourseId, category_id: int, context_id: int,
+    ) -> dict[str, int]:
+        """Delete a question-bank category along with every question in it.
+
+        Two-step flow that mirrors the in-product UI:
+
+          1. Bulk-delete every question in the category via
+             /question/edit.php (deleteall=1 + per-question checkboxes).
+          2. Delete the now-empty category via the manage-categories page.
+
+        Returns {"questions_deleted": N, "category_deleted": 0|1}.
+        """
+        cat_param = f"{int(category_id)},{int(context_id)}"
+        bank_url = f"{self.base_url}/question/edit.php"
+
+        list_resp = self._session.get(
+            bank_url, params={"courseid": int(course_id), "cat": cat_param},
+        )
+        list_resp.raise_for_status()
+        qids = sorted({
+            int(m.group(1))
+            for m in re.finditer(r'data-questionid="(\d+)"', list_resp.text)
+        })
+
+        if qids:
+            # Two-step delete via /question/bank/deletequestion/delete.php:
+            # GET produces a confirmation form carrying a one-time `confirm`
+            # token; POST that form back to commit.
+            delete_url = f"{self.base_url}/question/bank/deletequestion/delete.php"
+            params: dict[str, str] = {
+                "deleteselected": ",".join(str(q) for q in qids),
+                "sesskey": self.sesskey,
+                "courseid": str(int(course_id)),
+                "returnurl": f"/question/edit.php?courseid={int(course_id)}&cat={cat_param}",
+                "deleteall": "1",
+            }
+            for q in qids:
+                params[f"q{q}"] = "1"
+            stage1 = self._session.get(delete_url, params=params)
+            stage1.raise_for_status()
+
+            confirm_soup = BeautifulSoup(stage1.text, "html.parser")
+            confirm_form = next(
+                (f for f in confirm_soup.find_all("form")
+                 if "deletequestion/delete.php" in (f.get("action") or "")),
+                None,
+            )
+            if confirm_form is not None:
+                confirm_data: dict[str, str] = {}
+                for inp in confirm_form.find_all("input"):
+                    n = str(inp.get("name") or "")
+                    if not n:
+                        continue
+                    typ = str(inp.get("type") or "").lower()
+                    if typ in ("submit", "button", "reset"):
+                        continue
+                    confirm_data[n] = str(inp.get("value") or "")
+                self._session.post(
+                    delete_url,
+                    data=confirm_data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"},
+                    allow_redirects=True,
+                )
+
+        # Empty category → simple GET deletes it; if not empty, Moodle would
+        # show the move-questions form, which we ignore.
+        cat_url = f"{self.base_url}/question/bank/managecategories/category.php"
+        self._session.get(cat_url, params={
+            "courseid": int(course_id),
+            "delete": int(category_id),
+            "sesskey": self.sesskey,
+            "confirm": 1,
+        })
+
+        # Verify the category is gone.
+        check = self._session.get(cat_url, params={"courseid": int(course_id)})
+        category_deleted = f"cat={int(category_id)}" not in check.text
+
+        return {
+            "questions_deleted": len(qids),
+            "category_deleted": int(category_deleted),
+        }
+
+    def add_random_questions_to_quiz(
+            self, quiz_cmid: Cmid, category_id: int, context_id: int, count: int,
+            include_subcategories: bool = False,
+    ) -> None:
+        """Add `count` random questions to a quiz, drawn from one bank category.
+
+        Wraps Moodle's `mod_quiz_add_random_questions` webservice. Builds the
+        `filtercondition` JSON the same way the in-product modal does — that's
+        the only signature this webservice accepts in Moodle 4.x.
+        """
+        filter_condition = json.dumps({
+            "qpage": 0,
+            "cat": f"{category_id},{context_id}",
+            "qperpage": 20,
+            "tabname": "questions",
+            "filter": {
+                "category": {
+                    "jointype": 1,
+                    "values": [str(category_id)],
+                    "filteroptions": {"includesubcategories": bool(include_subcategories)},
+                    "name": "qbank_managecategories\\category_condition",
+                },
+            },
+            "jointype": 2,
+        })
+        self.ajax("mod_quiz_add_random_questions", {
+            "cmid": int(quiz_cmid),
+            "addonpage": 0,
+            "randomcount": int(count),
+            "filtercondition": filter_condition,
+            "newcategory": "",
+            "parentcategory": "",
+        })
+
     # ── Question bank import ──────────────────────────────────────────────────
 
     def import_question_bank(self, course_id: CourseId, file_path: object) -> dict[str, Any]:

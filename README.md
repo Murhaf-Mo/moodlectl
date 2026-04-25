@@ -294,10 +294,13 @@ which cascades to every reply.
 
 ### questions
 
-Import a Moodle XML question bank into a course's question bank. Validates
-the XML locally first (parses, counts questions per type, lists categories),
-runs a remote pre-flight (session valid, import form reachable), then prompts
-for confirmation. Strict mode: any warning or error reported by Moodle aborts.
+Manage the question bank from the command line: import a Moodle XML file,
+build a quiz from a category, or delete a category and its questions.
+
+**Import** validates the XML locally first (parses, counts questions per
+type, lists categories), runs a remote pre-flight (session valid, import
+form reachable), then prompts for confirmation. Strict mode: any warning or
+error reported by Moodle aborts.
 
 ```bash
 moodlectl questions import --course 581 --file quiz.xml --dry-run   # local validation only
@@ -309,6 +312,55 @@ The XML can contain `<question type="category">` entries — they're honoured
 on import (`catfromfile=1`, `contextfromfile=1`), so categories and contexts
 declared in the file are created automatically. Only Moodle XML is supported;
 GIFT, Aiken, etc. are not yet wired in.
+
+**`to-quiz`** creates a quiz module wired to a question-bank category. It
+finds the category by name, creates the quiz in the requested section, and
+attaches a random-question slot that pulls `--count` questions per attempt
+from that category. Hidden by default.
+
+```bash
+moodlectl questions to-quiz -c 581 -s 10 -n "Midterm Practice" \
+    --category "Quiz 3 — CH6 + CH7" --count 10
+
+moodlectl questions to-quiz -c 581 -s 10 -n "Quiz 3" \
+    --category "Quiz 3 — CH6 + CH7" --count 10 \
+    --open "2026-04-27 18:30" --close "2026-04-27 20:00" \
+    --password 221133 --time-limit 60 --attempts 1
+
+# Append another random pool to an existing quiz
+moodlectl questions to-quiz -c 581 --append-to-cmid 20199 \
+    --category "Practice — CH7" --count 5
+```
+
+Flags: `--count` (default 10), `--open` / `--close` `"YYYY-MM-DD HH:MM"`,
+`--password`, `--time-limit` (minutes; 0 = no limit), `--attempts`
+(0 = unlimited), `--shuffle-answers` / `--no-shuffle-answers`,
+`--append-to-cmid` (skip module creation; attach to an existing quiz),
+`--visible` / `--hidden` (default hidden).
+
+**`list-categories`** prints the question-bank tree for a course with
+question counts. **`list --category "X"`** shows every question inside a
+category (id, type, name, status, usage count, last-used timestamp).
+
+```bash
+moodlectl questions list-categories -c 581                    # tree (default)
+moodlectl questions list-categories -c 581 -o table           # flat table
+moodlectl questions list-categories -c 581 -o json
+
+moodlectl questions list -c 581 --category "Quiz 3 — CH6 + CH7"
+moodlectl questions list -c 581 --category "Quiz 3 — CH6 + CH7" -o json
+```
+
+**`delete-category`** deletes a question-bank category and every question in
+it. Two-step flow: bulk-deletes the questions, then removes the now-empty
+category. Irreversible — once questions are purged from the bank they can't
+be recovered short of a fresh import. To remove a quiz that draws from the
+category first, use `content delete --cmid <quiz-cmid>`.
+
+```bash
+moodlectl questions delete-category -c 581 -n "Quiz 3 — CH6 + CH7"          # prompts
+moodlectl questions delete-category -c 581 -n "Quiz 3 — CH6 + CH7" --force  # skip prompt
+```
 
 ### messages
 
