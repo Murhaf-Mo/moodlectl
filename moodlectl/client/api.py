@@ -1080,6 +1080,124 @@ class MoodleAPI(MoodleClientBase):
 
         return grade_max
 
+    # ── Question bank import ──────────────────────────────────────────────────
+
+    def import_question_bank(self, course_id: CourseId, file_path: object) -> dict[str, Any]:
+        """Import a Moodle XML question bank file into a course.
+
+        Scrapes the import form for sesskey + draft itemid, uploads the file
+        into the draft area, then POSTs the form with format=xml,
+        catfromfile/contextfromfile checked (so $category lines from the XML
+        are honoured), and stoponerror=1.
+
+        Returns:
+            {'imported': int, 'errors': [...], 'warnings': [...], 'response_url': str}
+        """
+        from pathlib import Path
+
+        path = Path(str(file_path))
+        if not path.is_file():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        form_url = f"{self.base_url}/question/bank/importquestions/import.php"
+        resp = self._session.get(form_url, params={"courseid": int(course_id)})
+        resp.raise_for_status()
+        if "/login/index.php" in resp.url:
+            raise RuntimeError("Session expired. Run `moodlectl auth login`.")
+
+        soup = BeautifulSoup(resp.text, "html.parser")
+        form = next(
+            (f for f in soup.find_all("form")
+             if "importquestions/import.php" in (f.get("action") or "")),
+            None,
+        )
+        if not form:
+            raise RuntimeError(
+                "Question import form not found. The user may lack import permission "
+                f"on course {course_id}."
+            )
+
+        itemid_input = form.find("input", attrs={"name": "newfile"})
+        if not itemid_input or not itemid_input.get("value"):
+            raise RuntimeError("Could not find draft itemid (newfile) on the import form.")
+        draft_itemid = str(itemid_input.get("value", ""))
+
+        # Push the XML into the draft area attached to this form.
+        self._upload_to_draft(soup, draft_itemid, str(path))
+
+        # Build the POST payload from the form's existing fields.
+        data: dict[str, str] = {}
+        for inp in form.find_all("input"):
+            name = str(inp.get("name") or "")
+            if not name:
+                continue
+            typ = str(inp.get("type") or "").lower()
+            if typ in ("submit", "button", "reset", "file"):
+                continue
+            if typ == "radio":
+                continue
+            data[name] = str(inp.get("value") or "")
+        for sel in form.find_all("select"):
+            name = str(sel.get("name") or "")
+            if not name:
+                continue
+            chosen = sel.find("option", selected=True) or sel.find("option")
+            if chosen is not None:
+                data[name] = str(chosen.get("value") or "")
+
+        # Force the values we care about.
+        data["format"] = "xml"
+        data["catfromfile"] = "1"
+        data["contextfromfile"] = "1"
+        data["stoponerror"] = "1"
+        data["newfile"] = str(draft_itemid)
+        data["submitbutton"] = "Import"
+
+        # Moodle's import.php needs courseid in the query string even for POST;
+        # without it the route returns 404.
+        # The shared session sets Content-Type: application/json by default for
+        # AJAX calls — override it so MForm sees the URL-encoded body.
+        post_resp = self._session.post(
+            form_url, params={"courseid": int(course_id)},
+            data=data, allow_redirects=True,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        post_resp.raise_for_status()
+        result_html = post_resp.text
+        result_soup = BeautifulSoup(result_html, "html.parser")
+
+        errors: list[str] = []
+        warnings: list[str] = []
+        for div in result_soup.find_all("div"):
+            cls_attr = div.get("class")
+            if isinstance(cls_attr, list):
+                cls = " ".join(str(c) for c in cls_attr)
+            else:
+                cls = str(cls_attr or "")
+            text = div.get_text(" ", strip=True)
+            if not text:
+                continue
+            if "notifyproblem" in cls or "alert-danger" in cls or "alert-error" in cls:
+                errors.append(text)
+            elif "notifywarning" in cls or "alert-warning" in cls:
+                warnings.append(text)
+
+        # Moodle prints a per-question status list; count "Importing question N"
+        # or fall back to the summary line "Importing N questions from file".
+        imported = 0
+        m = re.search(r"Importing\s+(\d+)\s+questions?", result_html, re.IGNORECASE)
+        if m:
+            imported = int(m.group(1))
+        else:
+            imported = len(re.findall(r"Importing\s+question\s+\d+", result_html, re.IGNORECASE))
+
+        return {
+            "imported": imported,
+            "errors": errors,
+            "warnings": warnings,
+            "response_url": post_resp.url,
+        }
+
     def download_resource(self, cmid: Cmid, dest_dir: object) -> object:
         """Download the file backing a `resource` module to dest_dir.
 

@@ -292,6 +292,24 @@ top. `--group <id>` restricts the post to a specific group (`-1` = all).
 (mail-now, pinned, attachments) is left as-is. `delete` removes the root post,
 which cascades to every reply.
 
+### questions
+
+Import a Moodle XML question bank into a course's question bank. Validates
+the XML locally first (parses, counts questions per type, lists categories),
+runs a remote pre-flight (session valid, import form reachable), then prompts
+for confirmation. Strict mode: any warning or error reported by Moodle aborts.
+
+```bash
+moodlectl questions import --course 581 --file quiz.xml --dry-run   # local validation only
+moodlectl questions import -c 581 -f quiz.xml                       # prompt then upload
+moodlectl questions import -c 581 -f quiz.xml --yes                 # skip prompt
+```
+
+The XML can contain `<question type="category">` entries — they're honoured
+on import (`catfromfile=1`, `contextfromfile=1`), so categories and contexts
+declared in the file are created automatically. Only Moodle XML is supported;
+GIFT, Aiken, etc. are not yet wired in.
+
 ### messages
 
 ```bash
