@@ -1080,6 +1080,33 @@ class MoodleAPI(MoodleClientBase):
 
         return grade_max
 
+    def download_resource(self, cmid: Cmid, dest_dir: object) -> object:
+        """Download the file backing a `resource` module to dest_dir.
+
+        Returns the path written. Resource view pages 303-redirect to their
+        pluginfile.php URL when the resource is a single file; we follow that
+        and reuse `download_file` for the actual transfer.
+        """
+        from pathlib import Path
+        from urllib.parse import unquote
+
+        resp = self._session.get(
+            f"{self.base_url}/mod/resource/view.php",
+            params={"id": int(cmid)},
+            allow_redirects=False,
+        )
+        loc = resp.headers.get("Location", "")
+        if resp.status_code not in (301, 302, 303, 307, 308) or "pluginfile.php" not in loc:
+            raise RuntimeError(
+                f"Could not resolve file URL for resource cmid={cmid} "
+                f"(status={resp.status_code}). Is this a single-file resource?"
+            )
+
+        filename = unquote(loc.split("?", 1)[0].rsplit("/", 1)[-1])
+        dest = Path(str(dest_dir)) / filename
+        self.download_file(loc, dest)
+        return dest
+
     def download_file(self, url: str, dest_path: object) -> None:
         """Download an authenticated Moodle file (pluginfile.php) to dest_path.
 

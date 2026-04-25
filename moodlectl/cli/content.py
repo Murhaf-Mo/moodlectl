@@ -185,6 +185,32 @@ def unhide_module(
 
 
 # ---------------------------------------------------------------------------
+# content download
+# ---------------------------------------------------------------------------
+
+@app.command("download")
+def download_resource(
+        cmid: list[int] = typer.Option(..., "--cmid", help="Resource cmid (repeatable)."),
+        out: str = typer.Option(".", "--out", "-o", help="Destination directory (default: current directory)."),
+) -> None:
+    """Download the file(s) backing one or more resource modules.
+
+    Examples:
+      moodlectl content download --cmid 19905
+      moodlectl content download --cmid 19905 --cmid 20194 --out ./pdfs
+    """
+    client = MoodleClient.from_config(Config.load())
+    dest_dir = Path(out)
+    for c in cmid:
+        try:
+            path = client.download_resource(Cmid(c), dest_dir)
+        except RuntimeError as exc:
+            console.print(f"[red]cmid={c}: {exc}[/red]")
+            raise typer.Exit(1)
+        console.print(f"[green]Saved[/green] cmid={c} → {path}")
+
+
+# ---------------------------------------------------------------------------
 # content rename
 # ---------------------------------------------------------------------------
 

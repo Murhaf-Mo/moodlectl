@@ -207,6 +207,9 @@ moodlectl content create --course 83 --section 2 --type url --name "Syllabus" --
 moodlectl content create --course 83 --section 3 --type assign --name "Homework 1" --set due_date="2026-06-01 23:59" --set grading_due="2026-06-08 23:59" --set max_grade=10
 moodlectl content create --course 83 --section 9 --type resource --file "CH6.pdf"  # upload a local file
 moodlectl content create --course 83 --from-yaml new_modules.yaml   # bulk create
+
+moodlectl content download --cmid 19905                              # download a resource file
+moodlectl content download --cmid 19905 --cmid 20194 --out ./pdfs    # multiple, into a folder
 ```
 
 `--set key=value` is repeatable and accepts any field from `content settings`. `--name` is required for every type
