@@ -75,9 +75,22 @@ course 51.
 ```bash
 moodlectl auth set-url https://school.moodledemo.net   # change Moodle URL (once)
 moodlectl auth login                                   # browser login
+moodlectl auth login -u teacher -p moodle25            # form login, no browser (CI-friendly)
 moodlectl auth check                                   # session validity + time left
 moodlectl auth logout                                  # invalidate session, clear .env
 moodlectl auth logout --clear-url                      # also wipe MOODLE_BASE_URL
+```
+
+For CI / GitHub Actions, set `MOODLE_USERNAME` and `MOODLE_PASSWORD` as repo
+secrets — `auth login` picks them up with no flags:
+
+```yaml
+- name: Authenticate moodlectl
+  env:
+    MOODLE_BASE_URL: https://school.moodledemo.net
+    MOODLE_USERNAME: ${{ secrets.MOODLE_USERNAME }}
+    MOODLE_PASSWORD: ${{ secrets.MOODLE_PASSWORD }}
+  run: moodlectl auth login
 ```
 
 ### courses

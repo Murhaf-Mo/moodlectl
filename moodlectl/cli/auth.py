@@ -154,6 +154,68 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
         driver.quit()
 
 
+def _form_login(base_url: str, username: str, password: str) -> tuple[str, str] | None:
+    """Log in via username + password against the standard Moodle login form.
+
+    Captures the MoodleSession cookie and scrapes the sesskey from the
+    dashboard. Works on any Moodle that exposes plain form login (the public
+    school.moodledemo.net demo, most institutional Moodles without SSO).
+
+    Returns (session, sesskey) on success, or None on failure.
+    """
+    s = requests.Session()
+    s.headers.update({"User-Agent": _UA})
+
+    try:
+        r = s.get(f"{base_url}/login/index.php", timeout=20)
+    except requests.RequestException as exc:
+        console.print(f"[red]Could not reach {base_url}/login/index.php:[/red] {exc}")
+        return None
+
+    token_match = re.search(r'name="logintoken"\s+value="([^"]+)"', r.text)
+    payload = {"username": username, "password": password}
+    if token_match:
+        payload["logintoken"] = token_match.group(1)
+
+    try:
+        r = s.post(
+            f"{base_url}/login/index.php",
+            data=payload,
+            timeout=20,
+            allow_redirects=True,
+        )
+    except requests.RequestException as exc:
+        console.print(f"[red]Login POST failed:[/red] {exc}")
+        return None
+
+    # If we still see a login form (with logintoken) → bad creds.
+    if "/login/" in r.url or 'name="logintoken"' in r.text:
+        # Try to extract Moodle's specific error message for clarity.
+        m = re.search(r'class="loginerrors[^"]*"[^>]*>\s*(?:<[^>]+>\s*)*([^<]+)', r.text)
+        msg = m.group(1).strip() if m else "Invalid login or password rejected by Moodle."
+        console.print(f"[red]Login rejected:[/red] {msg}")
+        return None
+
+    session_cookie = s.cookies.get("MoodleSession")
+    if not session_cookie:
+        console.print("[red]Login succeeded but MoodleSession cookie was not set.[/red]")
+        return None
+
+    # Hit the dashboard once to ensure sesskey is in the page.
+    try:
+        r = s.get(f"{base_url}/my/", timeout=20, allow_redirects=True)
+    except requests.RequestException as exc:
+        console.print(f"[red]Dashboard fetch failed:[/red] {exc}")
+        return None
+
+    sk_match = re.search(r'"?sesskey"?\s*:\s*"([^"]+)"', r.text)
+    if not sk_match:
+        console.print("[red]Could not find sesskey in dashboard HTML.[/red]")
+        return None
+
+    return session_cookie, sk_match.group(1)
+
+
 @app.command("login")
 def login(
         session: str | None = typer.Option(
@@ -166,20 +228,34 @@ def login(
             "--sesskey",
             help="Moodle sesskey value (skips browser). Get it from F12 → Network → any service.php request body.",
         ),
+        username: str | None = typer.Option(
+            None, "--username", "-u",
+            help="Moodle username for plain form login (no browser, CI-friendly). "
+                 "Falls back to $MOODLE_USERNAME if unset.",
+        ),
+        password: str | None = typer.Option(
+            None, "--password", "-p",
+            help="Moodle password. Falls back to $MOODLE_PASSWORD if unset. "
+                 "Prefer the env var to avoid leaking the password into shell history.",
+        ),
 ) -> None:
-    """Open Chrome and automatically save your Moodle session credentials.
+    """Save Moodle session credentials. Three modes, in priority order:
 
-    First checks if your current session is still valid — if so, skips the
-    browser entirely. Otherwise opens Chrome for you to log in via Microsoft
-    SSO. The window closes automatically once login is detected.
+      1. --session/--sesskey   — paste values directly (no network round trip).
+      2. --username/--password — plain form login against /login/index.php
+                                 (no browser, works in GitHub Actions / CI).
+      3. (default)             — open Chrome and let you log in interactively.
 
-    Pass --session and --sesskey to skip the browser entirely and save
-    credentials directly (same as [bold]auth set-session[/bold]).
+    Mode (2) reads MOODLE_USERNAME / MOODLE_PASSWORD as fallbacks, so CI can
+    set them as repo secrets and call `moodlectl auth login` with no flags.
 
-    Requires browser: pip install moodlectl[browser]
+    First checks if the existing session is still valid — if so, skips
+    everything else.
 
     Examples:
       moodlectl auth login
+      moodlectl auth login --username teacher --password moodle25
+      MOODLE_USERNAME=teacher MOODLE_PASSWORD=moodle25 moodlectl auth login
       moodlectl auth login --session abc123 --sesskey p0AWOSwW1234
     """
     env_path = Path(".env")
@@ -208,23 +284,9 @@ def login(
             console.print(f"[yellow]Warning: could not verify session:[/yellow] {exc}")
         return
 
-    try:
-        import selenium  # noqa: F401  # pyright: ignore[reportUnusedImport]
-        import webdriver_manager  # noqa: F401  # pyright: ignore[reportUnusedImport]
-    except ImportError:
-        console.print(
-            "[red]Browser login requires extra packages:[/red]\n\n"
-            "  pip install moodlectl\\[browser]\n\n"
-            "Or set credentials manually:\n"
-            "  moodlectl auth login --session SESSION --sesskey SESSKEY\n\n"
-            "Then run [bold]moodlectl auth login[/bold] again."
-        )
-        raise typer.Exit(1)
-
     base_url = os.environ.get("MOODLE_BASE_URL", "https://school.moodledemo.net")
-    env_path = Path(".env")
 
-    # ── Pre-check: skip browser if session is already valid ───────────────────
+    # ── Pre-check: skip everything if session is already valid ────────────────
     console.print("Checking existing session...")
     valid, count = _check_session_valid()
     if valid:
@@ -233,6 +295,48 @@ def login(
             "No login needed. Run [bold]moodlectl auth check[/bold] to see expiry info."
         )
         return
+
+    # ── Username/password mode (no browser, CI-friendly) ──────────────────────
+    user = username or os.environ.get("MOODLE_USERNAME") or ""
+    pw = password or os.environ.get("MOODLE_PASSWORD") or ""
+    if user and pw:
+        console.print(f"Logging in to [bold]{base_url}[/bold] as [bold]{user}[/bold]...")
+        creds = _form_login(base_url, user, pw)
+        if creds is None:
+            raise typer.Exit(1)
+        session_value, sesskey_value = creds
+        _save_credentials(env_path, session_value, sesskey_value)
+        console.print(
+            f"[green]Saved to .env[/green]  "
+            f"SESSION={session_value[:8]}…  SESSKEY={sesskey_value[:8]}…"
+        )
+        load_dotenv(override=True)
+        try:
+            client = MoodleClient.from_config(Config.load())
+            courses = client.get_courses()
+            console.print(
+                f"[green bold]Session valid.[/green bold] "
+                f"{len(courses)} course(s) accessible."
+            )
+        except Exception:
+            console.print("[green bold]Session valid.[/green bold] (Course list unavailable.)")
+        return
+
+    # ── Browser fallback (Selenium) ───────────────────────────────────────────
+    try:
+        import selenium  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        import webdriver_manager  # noqa: F401  # pyright: ignore[reportUnusedImport]
+    except ImportError:
+        console.print(
+            "[red]Browser login requires extra packages:[/red]\n\n"
+            "  pip install moodlectl\\[browser]\n\n"
+            "Or use form login (no browser):\n"
+            "  moodlectl auth login --username teacher --password moodle25\n"
+            "  MOODLE_USERNAME=teacher MOODLE_PASSWORD=moodle25 moodlectl auth login\n\n"
+            "Or set credentials manually:\n"
+            "  moodlectl auth login --session SESSION --sesskey SESSKEY"
+        )
+        raise typer.Exit(1)
 
     console.print("[yellow]Session expired or missing.[/yellow] Launching Chrome...\n")
 

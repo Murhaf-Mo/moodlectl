@@ -15,7 +15,7 @@ permissions:
   contents: write  # required to create a GitHub Release
 
 jobs:
-  # ── Gate: tests must pass before we build anything ─────────────────────────
+  # ── Gate 1: unit tests + lint must pass before we build anything ──────────-
   test:
     runs-on: ubuntu-latest
     steps:
@@ -31,12 +31,41 @@ jobs:
       - name: Lint
         run: ruff check .
 
-      - name: Tests
+      - name: Unit tests
         run: pytest
+
+  # ── Gate 2: end-to-end suite against the live school.moodledemo.net demo ──-
+  # Uses form login with the public demo creds — no repo secrets needed.
+  # The demo can occasionally be wiped or overloaded; if that happens the
+  # whole release blocks (intentionally — better to surface a regression
+  # than ship an installer that doesn't work against a real Moodle).
+  demo-tests:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MOODLE_BASE_URL: https://school.moodledemo.net
+      MOODLE_USERNAME: teacher
+      MOODLE_PASSWORD: moodle25
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev,analytics]"
+
+      - name: Authenticate against demo Moodle
+        run: moodlectl auth login
+
+      - name: End-to-end demo suite
+        run: pytest -m demo -v
 
   # ── Extract version (shared by both build jobs) ────────────────────────────
   version:
-    needs: test
+    needs: [ test, demo-tests ]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
