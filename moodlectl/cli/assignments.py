@@ -9,6 +9,7 @@ from rich.console import Console
 from moodlectl.client import MoodleClient
 from moodlectl.config import Config
 from moodlectl.features import assignments as assignments_feature
+from moodlectl.features import content as content_feature
 from moodlectl.output.formatters import print_table
 from moodlectl.types import AssignmentStatus, Cmid, CourseId, CourseMap, OutputFmt
 
@@ -480,3 +481,146 @@ def download_submissions(
         ungraded_only=ungraded,
         user_ids=list(user) if user else None,
     )
+
+
+# ── create ───────────────────────────────────────────────────────────────────-
+
+_DEFAULT_FILETYPES = ".pdf,.docx,.doc,.zip"
+
+
+@app.command("create")
+def create_assignment(
+        course: int = typer.Option(..., "--course", "-c", help="Course ID."),
+        section: int = typer.Option(..., "--section", "-s", help="Section number (0-indexed)."),
+        name: str = typer.Option(..., "--name", "-n", help="Assignment name."),
+        description: Optional[str] = typer.Option(None, "--description", help="Assignment description (HTML or plain text)."),
+        due: Optional[str] = typer.Option(None, "--due", help="Due date, ISO 8601 (e.g. 2026-05-04T23:59)."),
+        cutoff: Optional[str] = typer.Option(None, "--cutoff", help="Hard cut-off after which submissions are blocked."),
+        available_from: Optional[str] = typer.Option(None, "--available-from", help="Date submissions open."),
+        max_grade: int = typer.Option(100, "--max-grade", help="Maximum grade (default: 100)."),
+        submission_types: str = typer.Option(
+            "file", "--submission-types",
+            help="Comma-separated: file, online_text. Default: file.",
+        ),
+        max_files: int = typer.Option(1, "--max-files", help="Max files for file submission (default: 1)."),
+        filetypes: str = typer.Option(
+            _DEFAULT_FILETYPES, "--filetypes",
+            help=f"Accepted file extensions, comma-separated (default: {_DEFAULT_FILETYPES}).",
+        ),
+        word_limit: Optional[int] = typer.Option(None, "--word-limit", help="Word limit for online_text (omit for none)."),
+        max_attempts: Optional[int] = typer.Option(None, "--max-attempts", help="Max attempts (-1 = unlimited)."),
+        attempts_method: str = typer.Option(
+            "none", "--attempts-method",
+            help="When attempts reopen: none|manual|untilpass (default: none).",
+        ),
+        blind_marking: bool = typer.Option(False, "--blind-marking", help="Hide student identities from graders."),
+        team_submission: bool = typer.Option(False, "--team-submission", help="Group/team submissions."),
+        feedback_comments: bool = typer.Option(True, "--feedback-comments/--no-feedback-comments",
+                                               help="Enable feedback comments (default: on)."),
+        feedback_file: bool = typer.Option(False, "--feedback-file", help="Allow grader to upload feedback files."),
+        visible: bool = typer.Option(False, "--visible/--hidden", help="Visibility on course page (default: hidden)."),
+):
+    """Create an assignment activity in a course section.
+
+    Creates the assignment in hidden mode by default — toggle with --visible
+    once the brief is ready for students.
+
+    Examples:
+      moodlectl assignments create --course 581 --section 11 \\
+          --name "Assignment 4 — SQL Filtering" \\
+          --due 2026-05-04T23:59 --max-grade 20 --filetypes .pdf
+
+      moodlectl assignments create -c 581 -s 11 -n "Quiz makeup" \\
+          --submission-types file,online_text --word-limit 500
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    types_set = {t.strip() for t in submission_types.split(",") if t.strip()}
+    unknown = types_set - {"file", "online_text"}
+    if unknown:
+        console.print(f"[red]Unknown submission type(s): {', '.join(unknown)}[/red]")
+        raise typer.Exit(1)
+
+    if attempts_method not in {"none", "manual", "untilpass"}:
+        console.print("[red]--attempts-method must be one of: none, manual, untilpass[/red]")
+        raise typer.Exit(1)
+
+    settings: dict[str, object] = {
+        "visible": 1 if visible else 0,
+        "grade_type": "point",
+        "max_grade": max_grade,
+        "submission_type_file": 1 if "file" in types_set else 0,
+        "submission_type_online_text": 1 if "online_text" in types_set else 0,
+        "feedback_comments": 1 if feedback_comments else 0,
+        "feedback_file": 1 if feedback_file else 0,
+        "anonymous_submissions": 1 if blind_marking else 0,
+        "team_submission": 1 if team_submission else 0,
+        "submission_attempts": attempts_method,
+    }
+    if description:
+        settings["description"] = description
+    if due:
+        settings["due_date"] = due.replace("T", " ")
+    if cutoff:
+        settings["cutoff_date"] = cutoff.replace("T", " ")
+    if available_from:
+        settings["available_from"] = available_from.replace("T", " ")
+    if "file" in types_set:
+        settings["max_files"] = max_files
+        settings["accepted_filetypes"] = filetypes
+    if "online_text" in types_set and word_limit is not None:
+        settings["word_limit_enabled"] = 1
+        settings["word_limit"] = word_limit
+    if max_attempts is not None:
+        settings["max_attempts"] = max_attempts
+
+    try:
+        cmid = content_feature.create_module(
+            client, CourseId(course), section, "assign", name, settings=settings,
+        )
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]Could not create assignment:[/red] {exc}")
+        raise typer.Exit(1)
+
+    visibility = "visible" if visible else "hidden"
+    console.print(
+        f"[green]Created assignment[/green] [bold]{name}[/bold] "
+        f"(cmid={cmid}, {visibility}) in course {course} section {section}."
+    )
+
+
+# ── delete ───────────────────────────────────────────────────────────────────-
+
+@app.command("delete")
+def delete_assignment(
+        cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
+        course: int = typer.Option(..., "--course", "-c", help="Course ID."),
+        yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
+):
+    """Delete an assignment activity.
+
+    Removes the activity AND all its submissions, grades, and feedback.
+    This cannot be undone — Moodle does not soft-delete `mod_assign`.
+
+    Examples:
+      moodlectl assignments delete --assignment 18002 --course 581
+      moodlectl assignments delete -a 18002 -c 581 -y
+    """
+    client = MoodleClient.from_config(Config.load())
+
+    if not yes:
+        confirm = typer.confirm(
+            f"Delete assignment cmid={cmid}? This will erase all submissions and grades.",
+            default=False,
+        )
+        if not confirm:
+            console.print("[yellow]Aborted.[/yellow]")
+            raise typer.Exit()
+
+    try:
+        content_feature.delete_module(client, CourseId(course), Cmid(cmid))
+    except (RuntimeError, ValueError) as exc:
+        console.print(f"[red]Could not delete assignment:[/red] {exc}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]Deleted assignment[/green] cmid={cmid}.")

@@ -350,6 +350,54 @@ def check_session() -> None:
         console.print(f"Moodle session timeout: [bold]{_format_duration(timeout_sec)}[/bold]")
 
 
+@app.command("logout")
+def logout(
+        keep_url: bool = typer.Option(
+            True, "--keep-url/--clear-url",
+            help="Keep MOODLE_BASE_URL in .env so next login doesn't need set-url again.",
+        ),
+) -> None:
+    """Invalidate the Moodle session and clear stored credentials.
+
+    Calls Moodle's `/login/logout.php` to kill the server-side session, then
+    blanks MOODLE_SESSION and MOODLE_SESSKEY in .env. The base URL is kept
+    by default — pass --clear-url to wipe that too.
+
+    Examples:
+      moodlectl auth logout
+      moodlectl auth logout --clear-url
+    """
+    env_path = Path(".env")
+
+    # Server-side logout — best-effort; never fails the command.
+    try:
+        cfg = Config.load()
+        requests.get(
+            f"{cfg.base_url}/login/logout.php",
+            params={"sesskey": cfg.moodle_sesskey},
+            cookies={"MoodleSession": cfg.moodle_session},
+            headers={"User-Agent": _UA},
+            timeout=10,
+            allow_redirects=True,
+        )
+        console.print("[green]Server session invalidated.[/green]")
+    except SystemExit:
+        # Config.load() raises SystemExit when creds are already missing — fine.
+        console.print("[dim]No active session to invalidate.[/dim]")
+    except Exception as exc:
+        console.print(f"[yellow]Server logout request failed (continuing):[/yellow] {exc}")
+
+    # Wipe stored credentials.
+    set_key(str(env_path), "MOODLE_SESSION", "")
+    set_key(str(env_path), "MOODLE_SESSKEY", "")
+    set_key(str(env_path), "MOODLE_SESSION_SAVED_AT", "")
+    if not keep_url:
+        set_key(str(env_path), "MOODLE_BASE_URL", "")
+        console.print("[green]Cleared session, sesskey, and base URL from .env.[/green]")
+    else:
+        console.print("[green]Cleared session and sesskey from .env.[/green]")
+
+
 @app.command("set-url")
 def set_url(
         url: str = typer.Argument(

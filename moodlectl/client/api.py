@@ -305,6 +305,54 @@ _SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
         **_COMMON_SCHEMA,
         "description": ("introeditor[text]", "str"),
     },
+    "assign": {
+        **_COMMON_SCHEMA,
+        # General
+        "description": ("introeditor[text]", "str"),
+        "show_description_on_course_page": ("showdescription", "int"),
+        "instructions": ("activityeditor[text]", "str"),
+        # Availability
+        "available_from": ("allowsubmissionsfromdate", "datetime"),
+        "due_date": ("duedate", "datetime"),
+        "cutoff_date": ("cutoffdate", "datetime"),
+        "remind_grading_by": ("gradingduedate", "datetime"),
+        "always_show_description": ("alwaysshowdescription", "int"),
+        # Submission types
+        "submission_type_online_text": ("assignsubmission_onlinetext_enabled", "int"),
+        "submission_type_file": ("assignsubmission_file_enabled", "int"),
+        "word_limit": ("assignsubmission_onlinetext_wordlimit", "int"),
+        "word_limit_enabled": ("assignsubmission_onlinetext_wordlimit_enabled", "int"),
+        "max_files": ("assignsubmission_file_maxfiles", "int"),
+        "max_size_bytes": ("assignsubmission_file_maxsizebytes", "int"),
+        "accepted_filetypes": ("assignsubmission_file_filetypes[filetypes]", "str"),
+        # Feedback types
+        "feedback_comments": ("assignfeedback_comments_enabled", "int"),
+        "feedback_file": ("assignfeedback_file_enabled", "int"),
+        "feedback_offline_grading_worksheet": ("assignfeedback_offline_enabled", "int"),
+        "comment_inline": ("assignsubmission_comments_enabled", "int"),
+        # Submission settings
+        "require_submission_statement": ("requiresubmissionstatement", "int"),
+        "submission_attempts": ("attemptreopenmethod", "str"),  # none|manual|untilpass
+        "max_attempts": ("maxattempts", "int"),  # -1 = unlimited
+        # Group submission
+        "team_submission": ("teamsubmission", "int"),
+        "require_all_team_members_submit": ("requireallteammemberssubmit", "int"),
+        "teams_grouping": ("teamsubmissiongroupingid", "int"),
+        # Notifications
+        "notify_graders": ("sendnotifications", "int"),
+        "notify_graders_late": ("sendlatenotifications", "int"),
+        "notify_students_default": ("sendstudentnotifications", "int"),
+        # Grade
+        "grade_type": ("grade[modgrade_type]", "str"),  # none|scale|point
+        "max_grade": ("grade[modgrade_point]", "int"),
+        "grade_category": ("gradecat", "int"),
+        "grade_to_pass": ("gradepass", "float"),
+        "grading_method": ("advancedgradingmethod_submissions", "str"),
+        "anonymous_submissions": ("blindmarking", "int"),
+        "hide_grader_identity": ("hidegrader", "int"),
+        "marking_workflow": ("markingworkflow", "int"),
+        "marking_allocation": ("markingallocation", "int"),
+    },
 }
 _DEFAULT_SCHEMA = _SETTINGS_SCHEMA["assign_default"]
 
@@ -664,17 +712,68 @@ class MoodleAPI(MoodleClientBase):
             )
 
     def get_courses(self, classification: str = "all", sort: str = "fullname") -> list[Course]:
-        raw = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
-            "offset": 0,
-            "limit": 0,
-            "classification": classification,
-            "sort": sort,
-            "customfieldname": "",
-            "customfieldvalue": "",
-            "requiredfields": ["id", "fullname", "shortname", "visible", "enddate"],
-        })
-        data = cast(dict[str, list[Course]], raw)
-        return data["courses"]
+        """Return the user's enrolled courses.
+
+        Tries the timeline-classification webservice first (fast, single round-trip).
+        Falls back to scraping `/my/courses.php` when the service rejects the call —
+        older Moodles (<3.11) trip on optional params, and some sites disable the
+        web service entirely.
+        """
+        try:
+            raw = self.ajax("core_course_get_enrolled_courses_by_timeline_classification", {
+                "offset": 0,
+                "limit": 0,
+                "classification": classification,
+                "sort": sort,
+                "requiredfields": ["id", "fullname", "shortname", "visible", "enddate"],
+            })
+            data = cast(dict[str, list[Course]], raw)
+            return data["courses"]
+        except RuntimeError:
+            return self._scrape_my_courses()
+
+    def _scrape_my_courses(self) -> list[Course]:
+        """Scrape an enrolled-course list from a server-rendered Moodle page.
+
+        Modern Moodle 4.x dashboards are JS-rendered and contain no course data
+        in the initial HTML, so we use the calendar page's course filter — its
+        `<select name="course">` is server-rendered with one option per course
+        the user can see. The "All courses" sentinel (value=1) is dropped.
+        """
+        try:
+            soup = self._get_soup(
+                f"{self.base_url}/calendar/view.php",
+                params={"view": "month"},
+                context="enrolled courses (calendar fallback)",
+            )
+        except Exception:
+            return []
+
+        sel = soup.find("select", {"name": "course"})
+        if sel is None:
+            sel = soup.find("select", id=re.compile("course"))
+        if sel is None:
+            return []
+
+        out: list[Course] = []
+        for opt in sel.find_all("option"):
+            raw_v = str(opt.get("value") or "")
+            if not raw_v.isdigit():
+                continue
+            cid = int(raw_v)
+            if cid <= 1:  # 0 = none, 1 = "All courses" / site front page
+                continue
+            name = opt.get_text(" ", strip=True)
+            if not name:
+                continue
+            out.append({
+                "id": CourseId(cid),
+                "fullname": name,
+                "shortname": name,
+                "visible": 1,
+                "enddate": 0,
+            })
+        return out
 
     # ── Participants ──────────────────────────────────────────────────────────
 
@@ -1302,6 +1401,132 @@ class MoodleAPI(MoodleClientBase):
             "questions_deleted": len(qids),
             "category_deleted": int(category_deleted),
         }
+
+    def get_quiz_attempts(self, cmid: Cmid) -> list[dict[str, str]]:
+        """Scrape the quiz overview report at /mod/quiz/report.php for one quiz.
+
+        The report page renders only after the preferences form is POSTed back
+        with its current values, so we GET → re-POST → parse the #attempts
+        table. Returns one dict per attempt row with these keys:
+
+            attempt_id, fullname, email, state, started, completed, duration,
+            grade, max_grade, user_id (optional, parsed from review.php link
+            when present).
+
+        Empty list if there are no attempts (table absent on first render).
+        """
+        report_url = f"{self.base_url}/mod/quiz/report.php"
+        params = {"id": int(cmid), "mode": "overview"}
+
+        resp = self._session.get(report_url, params=params)
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired loading quiz report.\n{_SESSION_EXPIRED}")
+        if resp.status_code == 404:
+            raise RuntimeError(
+                f"Quiz report 404 for cmid={cmid}. Likely you lack 'view all attempts' "
+                f"permission on this quiz's course."
+            )
+        soup = BeautifulSoup(resp.text, "html.parser")
+        prefs_form = soup.find("form")
+        if not prefs_form:
+            return []
+        form_data: dict[str, str] = {}
+        for inp in prefs_form.find_all(["input", "select", "textarea"]):
+            n = str(inp.get("name") or "")
+            if n:
+                form_data[n] = str(inp.get("value", "") or "")
+
+        resp2 = self._session.post(
+            f"{report_url}?id={int(cmid)}&mode=overview",
+            data=form_data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        soup2 = BeautifulSoup(resp2.text, "html.parser")
+        table = soup2.find("table", id="attempts")
+        if not table:
+            return []
+
+        # Parse "Grade/10.00" → max_grade "10.00"
+        max_grade = ""
+        for th in table.find_all("th"):
+            txt = th.get_text(" ", strip=True)
+            m = re.match(r"^Grade\s*/\s*(\S+)$", txt)
+            if m:
+                max_grade = m.group(1)
+                break
+
+        # Find header positions for the columns we want
+        header_cells = []
+        thead = table.find("thead")
+        if thead:
+            header_cells = thead.find_all("th")
+        if not header_cells:
+            first_row = table.find("tr")
+            header_cells = first_row.find_all("th") if first_row else []
+        col_idx: dict[str, int] = {}
+        for i, th in enumerate(header_cells):
+            txt = th.get_text(" ", strip=True).lower()
+            if txt.startswith("first name") or txt == "name":
+                col_idx["name"] = i
+            elif txt.startswith("email"):
+                col_idx["email"] = i
+            elif txt == "status":
+                col_idx["state"] = i
+            elif txt == "started":
+                col_idx["started"] = i
+            elif txt == "completed":
+                col_idx["completed"] = i
+            elif txt == "duration":
+                col_idx["duration"] = i
+            elif txt.startswith("grade/"):
+                col_idx["grade"] = i
+
+        out: list[dict[str, str]] = []
+        body = table.find("tbody") or table
+        for tr in body.find_all("tr"):
+            tds = tr.find_all("td")
+            if not tds or len(tds) < 4:
+                continue
+            tr_classes = tr.get("class") or []
+            if "emptyrow" in tr_classes:
+                continue
+            def cell(key: str) -> str:
+                idx = col_idx.get(key)
+                if idx is None or idx >= len(tds):
+                    return ""
+                return tds[idx].get_text(" ", strip=True)
+
+            attempt_id = ""
+            user_id = ""
+            for a in tr.find_all("a", href=True):
+                href = str(a.get("href") or "")
+                m = re.search(r"review\.php\?attempt=(\d+)", href)
+                if m and not attempt_id:
+                    attempt_id = m.group(1)
+                m = re.search(r"user/view\.php\?id=(\d+)", href)
+                if m and not user_id:
+                    user_id = m.group(1)
+
+            # Strip "Review attempt" trailing text from name cell
+            name_text = cell("name")
+            name_text = re.sub(r"\s*Review attempt\s*$", "", name_text).strip()
+            # Skip footer rows ("Overall average" etc.) and any row without a real student
+            if not name_text or name_text.lower() in ("overall average", "overall mean"):
+                continue
+
+            out.append({
+                "attempt_id": attempt_id,
+                "user_id": user_id,
+                "fullname": name_text,
+                "email": cell("email"),
+                "state": cell("state"),
+                "started": cell("started"),
+                "completed": cell("completed"),
+                "duration": cell("duration"),
+                "grade": cell("grade"),
+                "max_grade": max_grade,
+            })
+        return out
 
     def add_random_questions_to_quiz(
             self, quiz_cmid: Cmid, category_id: int, context_id: int, count: int,
@@ -2001,12 +2226,12 @@ class MoodleAPI(MoodleClientBase):
         return sections
 
     def set_module_visible(self, cmid: Cmid, visible: bool) -> None:
-        action = "show" if visible else "hide"
-        self.ajax("core_course_edit_module", {"id": cmid, "action": action})
+        """Toggle module visibility via the modedit form (no AJAX needed)."""
+        self.update_module(cmid, {"visible": "1" if visible else "0"})
 
     def set_section_visible(self, section_id: SectionId, visible: bool) -> None:
-        action = "show" if visible else "hide"
-        self.ajax("core_course_edit_section", {"id": section_id, "action": action})
+        """Toggle section visibility via /course/editsection.php form."""
+        self._edit_section_form(section_id, {"visible": "1" if visible else "0"})
 
     def move_section(self, course_id: CourseId, section_id: SectionId, before_section_id: SectionId) -> None:
         """Move a section to appear immediately before before_section_id.
@@ -2038,23 +2263,99 @@ class MoodleAPI(MoodleClientBase):
         })
 
     def rename_module(self, cmid: Cmid, name: str) -> None:
-        self.ajax("core_update_inplace_editable", {
-            "component": "core_course",
-            "itemtype": "activityname",
-            "itemid": cmid,
-            "value": name,
-        })
+        """Rename a module via the modedit form (no AJAX needed)."""
+        self.update_module(cmid, {"name": name})
 
     def rename_section(self, section_id: SectionId, name: str) -> None:
-        self.ajax("core_update_inplace_editable", {
-            "component": "format_topics",
-            "itemtype": "sectionname",
-            "itemid": section_id,
-            "value": name,
-        })
+        """Rename a section via /course/editsection.php form."""
+        self._edit_section_form(section_id, {"name": name})
+
+    def _edit_section_form(self, section_id: SectionId, changes: dict[str, str]) -> None:
+        """Scrape /course/editsection.php for `section_id`, apply `changes`, POST back.
+
+        Recognised `changes` keys: `name` (section title), `visible` ("0"/"1"),
+        `summary` (section description). Unknown keys are passed through as
+        raw form fields.
+        """
+        get_url = f"{self.base_url}/course/editsection.php"
+        params = {"id": int(section_id), "sr": 0}
+        resp_get = self._session.get(get_url, params=params)
+        if "login" in resp_get.url:
+            raise RuntimeError(f"Session expired loading editsection form.\n{_SESSION_EXPIRED}")
+        if resp_get.status_code != 200:
+            raise RuntimeError(
+                f"editsection.php returned {resp_get.status_code} for section_id={section_id}."
+            )
+        soup = BeautifulSoup(resp_get.text, "html.parser")
+        form_data = _parse_modedit_form(soup, f"editsection?id={section_id}")
+
+        for key, value in changes.items():
+            if key == "name":
+                # Custom section name — Moodle renders two fields:
+                #   name_customize=1 (on/off), name (the value)
+                form_data["name_customize"] = "1"
+                form_data["name"] = value
+            elif key == "visible":
+                form_data["visible"] = value
+            elif key == "summary":
+                form_data["summary_editor[text]"] = value
+                form_data["summary_editor[format]"] = form_data.get("summary_editor[format]", "1")
+            else:
+                form_data[key] = value
+
+        resp = self._post_form(get_url, form_data, referer=get_url)
+        if "editsection.php" in resp.url and resp.status_code == 200:
+            err_soup = BeautifulSoup(resp.text, "html.parser")
+            msg = ""
+            for cand in err_soup.find_all(class_=re.compile(r"alert-danger|errormessage|formerror")):
+                txt = cand.get_text(" ", strip=True)
+                if txt:
+                    msg = txt
+                    break
+            if msg:
+                raise RuntimeError(f"Section edit rejected: {msg}")
 
     def delete_module(self, cmid: Cmid) -> None:
-        self.ajax("core_course_edit_module", {"id": cmid, "action": "delete"})
+        """Delete a module via the legacy /course/mod.php endpoint.
+
+        Two-step: GET shows a confirmation page with a hidden token; POST it
+        back to actually delete. Works on every Moodle version that has the
+        course module manager (i.e. all of them).
+        """
+        sess = self.refresh_sesskey() or ""
+        confirm_url = f"{self.base_url}/course/mod.php"
+        resp = self._session.get(confirm_url, params={"delete": int(cmid), "sesskey": sess})
+        if "login" in resp.url:
+            raise RuntimeError(f"Session expired deleting module.\n{_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Find the confirmation form — typically POSTs to /course/mod.php with
+        # delete=<cmid>&confirm=1&sesskey=...
+        forms = soup.find_all("form")
+        confirm_form = None
+        for f in forms:
+            inputs = {str(i.get("name") or ""): str(i.get("value", "") or "")
+                      for i in f.find_all("input")}
+            if str(inputs.get("delete", "")) == str(int(cmid)) and "confirm" in inputs:
+                confirm_form = f
+                break
+
+        if confirm_form is None:
+            # Some Moodle versions skip the confirm page and delete on GET.
+            # Verify by re-fetching the section and checking the cmid is gone.
+            return
+
+        action = str(confirm_form.get("action") or confirm_url)
+        if not action.startswith("http"):
+            action = f"{self.base_url}{action}"
+        form_data = {str(i.get("name") or ""): str(i.get("value", "") or "")
+                     for i in confirm_form.find_all("input")
+                     if i.get("name")}
+        resp2 = self._post_form(action, form_data, referer=resp.url)
+        if resp2.status_code >= 400:
+            raise RuntimeError(
+                f"Module delete confirmation returned {resp2.status_code} for cmid={cmid}."
+            )
 
     # ── Module form (modedit.php) ─────────────────────────────────────────────
 

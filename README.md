@@ -76,6 +76,8 @@ course 51.
 moodlectl auth set-url https://school.moodledemo.net   # change Moodle URL (once)
 moodlectl auth login                                   # browser login
 moodlectl auth check                                   # session validity + time left
+moodlectl auth logout                                  # invalidate session, clear .env
+moodlectl auth logout --clear-url                      # also wipe MOODLE_BASE_URL
 ```
 
 ### courses
@@ -133,10 +135,24 @@ moodlectl assignments download                         # all submitted files
 moodlectl assignments download --course 51 --status active --out ./archive
 moodlectl assignments download --ungraded              # only files still to grade
 moodlectl assignments download --course 51 --user 1542 --user 1481   # specific students
+
+moodlectl assignments create -c 51 -s 4 -n "Assignment 4 — SQL Filtering" \
+  --due 2026-05-04T23:59 --max-grade 20 --filetypes ".pdf,.docx" --hidden
+moodlectl assignments create -c 51 -s 4 -n "Reflection essay" \
+  --submission-types online_text --word-limit 500 --max-grade 10
+moodlectl assignments delete --assignment 18002 --course 51
 ```
 
 Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land
 in a sibling `_brief/` folder.
+
+`create` accepts every common assignment field as flags: `--due`, `--cutoff`,
+`--available-from`, `--max-grade`, `--max-files`, `--filetypes`,
+`--submission-types` (`file`, `online_text`, or both, comma-separated),
+`--word-limit`, `--max-attempts`, `--attempts-method` (`none`/`manual`/`untilpass`),
+`--blind-marking`, `--team-submission`, `--feedback-comments` /
+`--no-feedback-comments`, `--feedback-file`, `--visible` / `--hidden` (default
+hidden). Dates accept ISO `2026-05-04T23:59` or space-separated form.
 
 ### grading
 
@@ -361,6 +377,35 @@ category first, use `content delete --cmid <quiz-cmid>`.
 moodlectl questions delete-category -c 581 -n "Quiz 3 — CH6 + CH7"          # prompts
 moodlectl questions delete-category -c 581 -n "Quiz 3 — CH6 + CH7" --force  # skip prompt
 ```
+
+### quizzes
+
+Read-side commands for `mod_quiz` activities — the activity itself is created
+via `questions to-quiz` (which wires it to a question-bank category). This
+group lists what's already there, inspects attempts and grades, and removes
+quizzes when you're done with them.
+
+```bash
+moodlectl quizzes list                                 # every quiz across your courses
+moodlectl quizzes list --course 69                     # one course
+moodlectl quizzes list --output csv > quizzes.csv
+
+moodlectl quizzes attempts --quiz 978                  # one row per attempt
+moodlectl quizzes results  --quiz 978                  # best graded attempt per student
+moodlectl quizzes info     --quiz 978                  # totals + state breakdown + grade stats
+
+moodlectl quizzes delete --quiz 1681 --course 83       # prompts; -y to skip
+```
+
+`attempts` shows attempt-id, student, state (Finished / In progress / Overdue
+/ Submitted / Abandoned), start and end times, duration, and the grade with
+its denominator. `results` collapses to one row per student, picking the best
+graded attempt and counting total attempts. `info` summarises a quiz's
+attempt count, state counts, min/avg/max grade.
+
+`delete` removes the quiz activity along with all attempts and grades; the
+underlying question-bank category is left intact (use
+`questions delete-category` for that).
 
 ### messages
 

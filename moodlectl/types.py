@@ -154,6 +154,40 @@ type CourseMap = dict[CourseId, Course]
 # Feature layer — shapes produced by features/ business-logic functions
 # ---------------------------------------------------------------------------
 
+class QuizListing(TypedDict):
+    """One quiz module in a course — from list_quizzes()."""
+    course_id: CourseId
+    cmid: Cmid
+    name: str
+    visible: int
+
+
+class QuizAttempt(TypedDict):
+    """One attempt row from the quiz overview report."""
+    cmid: Cmid
+    attempt_id: int
+    user_id: UserId | None
+    fullname: str
+    email: str
+    state: str  # Finished | In progress | Overdue | Abandoned | Submitted | Not started
+    started: str
+    completed: str
+    duration: str
+    grade: str  # raw grade text; empty if not graded
+    max_grade: str  # parsed once from the column header e.g. "10.00"
+
+
+class QuizResult(TypedDict):
+    """Best attempt per student — derived from a list of QuizAttempt."""
+    cmid: Cmid
+    user_id: UserId | None
+    fullname: str
+    email: str
+    attempts: int
+    best_grade: str
+    max_grade: str
+
+
 class AssignmentListing(TypedDict):
     """Assignment enriched with parsed due-date and status, from list_assignments()."""
     course_id: CourseId
@@ -367,6 +401,8 @@ class MoodleClientProtocol(Protocol):
     def rename_section(self, section_id: SectionId, name: str) -> None: ...
 
     def delete_module(self, cmid: Cmid) -> None: ...
+
+    def get_quiz_attempts(self, cmid: Cmid) -> list[dict[str, str]]: ...
 
     def move_module(self, course_id: CourseId, cmid: Cmid, target_cmid: int, section_id: SectionId) -> None: ...
 

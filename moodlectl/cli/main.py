@@ -22,6 +22,7 @@ from moodlectl.cli import (
     grading,
     messages,
     questions,
+    quizzes,
 )
 
 app = typer.Typer(
@@ -44,6 +45,7 @@ app.add_typer(grading.app, name="grading")
 app.add_typer(messages.app, name="messages")
 app.add_typer(announcements.app, name="announcements")
 app.add_typer(questions.app, name="questions")
+app.add_typer(quizzes.app, name="quizzes")
 
 
 @app.command("summary")
