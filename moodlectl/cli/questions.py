@@ -136,7 +136,7 @@ def import_questions(
             console.print(f"  [yellow]![/yellow] {w}")
         raise typer.Exit(1)
 
-    console.print(f"\n[green]Imported successfully.[/green]")
+    console.print("\n[green]Imported successfully.[/green]")
     if result["imported"]:
         console.print(f"Moodle confirmed [bold]{result['imported']}[/bold] question(s) imported.")
     console.print(f"[dim]Question bank: {result['response_url']}[/dim]")

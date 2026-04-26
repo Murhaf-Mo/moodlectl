@@ -78,3 +78,11 @@ reportPrivateUsage = "none"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.pytest.ini_options]
+# Demo suite hits the live school.moodledemo.net — opt-in only.
+# Run it explicitly with `pytest -m demo`.
+addopts = "-m 'not demo'"
+markers = [
+    "demo: end-to-end test against the live Moodle demo (excluded by default)",
+]

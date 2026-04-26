@@ -197,6 +197,31 @@ _SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
         "max_attempts": ("maxattempts", "int"),
         "completion_on_submit": ("completionsubmit", "int"),
         "grading_method": ("advancedgradingmethod_submissions", "str"),
+        # ── Extra keys consumed by `assignments create` (don't overlap above) ──
+        "show_description_on_course_page": ("showdescription", "int"),
+        "instructions": ("activityeditor[text]", "str"),
+        "always_show_description": ("alwaysshowdescription", "int"),
+        "word_limit": ("assignsubmission_onlinetext_wordlimit", "int"),
+        "word_limit_enabled": ("assignsubmission_onlinetext_wordlimit_enabled", "int"),
+        "feedback_comments": ("assignfeedback_comments_enabled", "int"),
+        "feedback_file": ("assignfeedback_file_enabled", "int"),
+        "feedback_offline_grading_worksheet": ("assignfeedback_offline_enabled", "int"),
+        "comment_inline": ("assignsubmission_comments_enabled", "int"),
+        "grade_type": ("grade[modgrade_type]", "str"),
+        "remind_grading_by": ("gradingduedate", "datetime"),
+        "teams_grouping": ("teamsubmissiongroupingid", "int"),
+        "require_all_team_members_submit": ("requireallteammemberssubmit", "int"),
+        # CLI-friendly aliases for fields that already have a canonical name above.
+        # Both keys map to the same Moodle form field — pick whichever reads better.
+        "submission_type_file": ("assignsubmission_file_enabled", "int"),
+        "submission_type_online_text": ("assignsubmission_onlinetext_enabled", "int"),
+        "max_size_bytes": ("assignsubmission_file_maxsizebytes", "int"),
+        "accepted_filetypes": ("assignsubmission_file_filetypes[filetypes]", "str"),
+        "anonymous_submissions": ("blindmarking", "int"),
+        "hide_grader_identity": ("hidegrader", "int"),
+        "cutoff_date": ("cutoffdate", "datetime"),
+        "submission_attempts": ("attemptreopenmethod", "str"),
+        "require_submission_statement": ("requiresubmissionstatement", "int"),
     },
     "quiz": {
         **_COMMON_SCHEMA,
@@ -304,54 +329,6 @@ _SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, str]]] = {
     "assign_default": {
         **_COMMON_SCHEMA,
         "description": ("introeditor[text]", "str"),
-    },
-    "assign": {
-        **_COMMON_SCHEMA,
-        # General
-        "description": ("introeditor[text]", "str"),
-        "show_description_on_course_page": ("showdescription", "int"),
-        "instructions": ("activityeditor[text]", "str"),
-        # Availability
-        "available_from": ("allowsubmissionsfromdate", "datetime"),
-        "due_date": ("duedate", "datetime"),
-        "cutoff_date": ("cutoffdate", "datetime"),
-        "remind_grading_by": ("gradingduedate", "datetime"),
-        "always_show_description": ("alwaysshowdescription", "int"),
-        # Submission types
-        "submission_type_online_text": ("assignsubmission_onlinetext_enabled", "int"),
-        "submission_type_file": ("assignsubmission_file_enabled", "int"),
-        "word_limit": ("assignsubmission_onlinetext_wordlimit", "int"),
-        "word_limit_enabled": ("assignsubmission_onlinetext_wordlimit_enabled", "int"),
-        "max_files": ("assignsubmission_file_maxfiles", "int"),
-        "max_size_bytes": ("assignsubmission_file_maxsizebytes", "int"),
-        "accepted_filetypes": ("assignsubmission_file_filetypes[filetypes]", "str"),
-        # Feedback types
-        "feedback_comments": ("assignfeedback_comments_enabled", "int"),
-        "feedback_file": ("assignfeedback_file_enabled", "int"),
-        "feedback_offline_grading_worksheet": ("assignfeedback_offline_enabled", "int"),
-        "comment_inline": ("assignsubmission_comments_enabled", "int"),
-        # Submission settings
-        "require_submission_statement": ("requiresubmissionstatement", "int"),
-        "submission_attempts": ("attemptreopenmethod", "str"),  # none|manual|untilpass
-        "max_attempts": ("maxattempts", "int"),  # -1 = unlimited
-        # Group submission
-        "team_submission": ("teamsubmission", "int"),
-        "require_all_team_members_submit": ("requireallteammemberssubmit", "int"),
-        "teams_grouping": ("teamsubmissiongroupingid", "int"),
-        # Notifications
-        "notify_graders": ("sendnotifications", "int"),
-        "notify_graders_late": ("sendlatenotifications", "int"),
-        "notify_students_default": ("sendstudentnotifications", "int"),
-        # Grade
-        "grade_type": ("grade[modgrade_type]", "str"),  # none|scale|point
-        "max_grade": ("grade[modgrade_point]", "int"),
-        "grade_category": ("gradecat", "int"),
-        "grade_to_pass": ("gradepass", "float"),
-        "grading_method": ("advancedgradingmethod_submissions", "str"),
-        "anonymous_submissions": ("blindmarking", "int"),
-        "hide_grader_identity": ("hidegrader", "int"),
-        "marking_workflow": ("markingworkflow", "int"),
-        "marking_allocation": ("markingallocation", "int"),
     },
 }
 _DEFAULT_SCHEMA = _SETTINGS_SCHEMA["assign_default"]
