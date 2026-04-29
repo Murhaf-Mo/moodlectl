@@ -1660,10 +1660,12 @@ class MoodleAPI(MoodleClientBase):
     def download_resource(self, cmid: Cmid, dest_dir: object) -> object:
         """Download the file backing a `resource` module to dest_dir.
 
-        Returns the path written. Resource view pages 303-redirect to their
-        pluginfile.php URL when the resource is a single file; we follow that
-        and reuse `download_file` for the actual transfer.
+        Returns the path written. Single-file resources configured to force
+        download 303-redirect to their pluginfile.php URL; resources set to
+        display inline (HTML, embedded PDF, …) render a wrapper page that
+        contains the pluginfile.php URL in the body. We handle both.
         """
+        import re
         from pathlib import Path
         from urllib.parse import unquote
 
@@ -1672,16 +1674,39 @@ class MoodleAPI(MoodleClientBase):
             params={"id": int(cmid)},
             allow_redirects=False,
         )
-        loc = resp.headers.get("Location", "")
-        if resp.status_code not in (301, 302, 303, 307, 308) or "pluginfile.php" not in loc:
+
+        file_url = ""
+        if resp.status_code in (301, 302, 303, 307, 308):
+            loc = resp.headers.get("Location", "")
+            if "pluginfile.php" in loc:
+                file_url = loc
+        elif resp.status_code == 200:
+            # Inline-display resource: scrape the wrapper page for the file URL.
+            page = self._session.get(
+                f"{self.base_url}/mod/resource/view.php",
+                params={"id": int(cmid)},
+            )
+            matches = re.findall(
+                r'https?://[^\s"\'<>]+/pluginfile\.php/[^\s"\'<>?]+',
+                page.text,
+            )
+            # Prefer mod_resource URLs and skip embed=1 duplicates by stripping query.
+            seen: list[str] = []
+            for m in matches:
+                if "/mod_resource/" in m and m not in seen:
+                    seen.append(m)
+            if seen:
+                file_url = seen[0]
+
+        if not file_url:
             raise RuntimeError(
                 f"Could not resolve file URL for resource cmid={cmid} "
-                f"(status={resp.status_code}). Is this a single-file resource?"
+                f"(status={resp.status_code})."
             )
 
-        filename = unquote(loc.split("?", 1)[0].rsplit("/", 1)[-1])
+        filename = unquote(file_url.split("?", 1)[0].rsplit("/", 1)[-1])
         dest = Path(str(dest_dir)) / filename
-        self.download_file(loc, dest)
+        self.download_file(file_url, dest)
         return dest
 
     def download_file(self, url: str, dest_path: object) -> None:

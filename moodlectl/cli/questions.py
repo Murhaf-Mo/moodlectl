@@ -23,6 +23,8 @@ def import_questions(
         file: str = typer.Option(..., "--file", "-f", help="Path to a Moodle XML question bank."),
         dry_run: bool = typer.Option(False, "--dry-run",
                                      help="Validate locally and show preview; do not upload."),
+        show: bool = typer.Option(False, "--show",
+                                  help="Print every question stem and answer choice from the file."),
         yes: bool = typer.Option(False, "--yes", "-y", help="Skip the confirmation prompt."),
 ) -> None:
     """Import a Moodle XML question bank into a course's question bank.
@@ -59,8 +61,25 @@ def import_questions(
         console.print(f"[red]Root element must be <quiz>, found <{root.tag}>.[/red]")
         raise typer.Exit(1)
 
+    def _strip_html(html_text: str) -> str:
+        """Best-effort HTML-to-text for terminal preview: drops tags, collapses
+        whitespace, decodes the few entities that show up in our banks."""
+        import re
+        if not html_text:
+            return ""
+        text = re.sub(r"<br\s*/?>", "\n", html_text, flags=re.IGNORECASE)
+        text = re.sub(r"</p>\s*<p[^>]*>", "\n", text, flags=re.IGNORECASE)
+        text = re.sub(r"<[^>]+>", "", text)
+        for entity, char in (
+            ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"),
+            ("&quot;", '"'), ("&#39;", "'"), ("&nbsp;", " "),
+        ):
+            text = text.replace(entity, char)
+        return re.sub(r"[ \t]+\n", "\n", text).strip()
+
     questions: list[tuple[str, str]] = []
     categories: list[str] = []
+    question_previews: list[dict[str, object]] = []
     for q in root.findall("question"):
         qtype = q.get("type", "?")
         if qtype == "category":
@@ -68,6 +87,20 @@ def import_questions(
         else:
             name = q.findtext("name/text", "(unnamed)") or "(unnamed)"
             questions.append((qtype, name))
+            stem = _strip_html(q.findtext("questiontext/text", "") or "")
+            answers = []
+            for ans in q.findall("answer"):
+                try:
+                    frac = float(ans.get("fraction", "0") or "0")
+                except ValueError:
+                    frac = 0.0
+                answers.append({
+                    "text": _strip_html(ans.findtext("text", "") or ""),
+                    "fraction": frac,
+                })
+            question_previews.append({
+                "type": qtype, "name": name, "stem": stem, "answers": answers,
+            })
 
     if not questions:
         console.print("[red]No questions found in file.[/red]")
@@ -88,6 +121,31 @@ def import_questions(
     for t, n in sorted(type_counts.items()):
         tbl.add_row(t, str(n))
     console.print(tbl)
+
+    if show:
+        console.print()
+        for i, q in enumerate(question_previews, start=1):
+            qtype = str(q["type"])
+            qname = str(q["name"])
+            stem = str(q["stem"])
+            console.print(f"[bold]Q{i:02d}[/bold] [dim]({qtype})[/dim] {qname}")
+            if stem:
+                for line in stem.splitlines():
+                    console.print(f"  {line}")
+            answers = q["answers"] if isinstance(q["answers"], list) else []
+            for j, ans in enumerate(answers, start=1):
+                frac = float(ans.get("fraction", 0.0))
+                ans_text = str(ans.get("text", ""))
+                marker = "✓" if frac > 0 else ("✗" if frac < 0 else "·")
+                colour = "green" if frac > 0 else ("red" if frac < 0 else "white")
+                frac_label = (
+                    " [100%]" if frac == 100.0 else (f" [{frac:g}%]" if frac != 0.0 else "")
+                )
+                lines = ans_text.splitlines() or [""]
+                console.print(f"  [{colour}]{marker}[/{colour}] {j}.{frac_label} {lines[0]}")
+                for line in lines[1:]:
+                    console.print(f"       {line}")
+            console.print()
 
     if dry_run:
         console.print("[dim]Dry run — local validation only, no upload performed.[/dim]")
