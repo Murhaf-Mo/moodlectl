@@ -21,6 +21,11 @@ def show_grades(
         name: str = typer.Option("", "--name", "-n", help="Filter by student name (partial match)."),
         full: bool = typer.Option(False, "--full", "-f", help="Show all grade items as a wide table."),
         cards: bool = typer.Option(False, "--cards", help="Show one panel per student listing all grade items."),
+        include_hidden: bool = typer.Option(
+            False,
+            "--include-hidden",
+            help="Include grade items whose activity is hidden from students (default: excluded).",
+        ),
         output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """Show the grade report for all students in a course.
@@ -47,7 +52,7 @@ def show_grades(
 
     reports: list[tuple[CourseId, GradeReport]] = []
     for cid in course_ids:
-        report = grades_feature.get_grade_report(client, cid, name=name)
+        report = grades_feature.get_grade_report(client, cid, name=name, include_hidden=include_hidden)
         reports.append((cid, report))
 
     # For multi-course csv/json, merge all rows into one flat list

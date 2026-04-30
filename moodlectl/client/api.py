@@ -824,6 +824,7 @@ class MoodleAPI(MoodleClientBase):
         Returns {"columns": [...], "rows": [{"id", "fullname", "email", col: grade, ...}]}
         """
         columns: list[str] = []
+        column_cmids: dict[str, int | None] = {}
         all_student_rows: list[dict[str, str | int]] = []
         page = 0
 
@@ -848,10 +849,15 @@ class MoodleAPI(MoodleClientBase):
                 if heading_row:
                     for th in heading_row.find_all(["th", "td"]):
                         name = None
+                        cmid: int | None = None
                         for a in th.find_all("a"):
                             title = _attr(a, "title")
                             if title.startswith("Link to"):
                                 name = re.sub(r"^Link to \S+ activity ", "", title).strip()
+                                href = _attr(a, "href")
+                                m = re.search(r"[?&]id=(\d+)", href)
+                                if m:
+                                    cmid = int(m.group(1))
                                 break
                         if not name:
                             raw = th.get_text(separator=" ", strip=True)
@@ -859,7 +865,9 @@ class MoodleAPI(MoodleClientBase):
                                 r"\s*(Cell actions|Ascending|Descending|Collapse|Expand column)\b.*",
                                 "", raw, flags=re.DOTALL,
                             ).strip()
-                        columns.append(name or f"col{len(columns)}")
+                        col_name = name or f"col{len(columns)}"
+                        columns.append(col_name)
+                        column_cmids[col_name] = cmid
 
             # Parse student rows on this page
             page_rows = [r for r in all_rows if r.get("data-uid")]
@@ -901,7 +909,7 @@ class MoodleAPI(MoodleClientBase):
                 break
             page += 1
 
-        return {"columns": columns, "rows": all_student_rows}
+        return GradeReport(columns=columns, rows=all_student_rows, column_cmids=column_cmids)
 
     # ── Assignments ───────────────────────────────────────────────────────────
 

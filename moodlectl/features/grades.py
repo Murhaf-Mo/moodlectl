@@ -9,17 +9,35 @@ def get_grade_report(
         client: MoodleClientProtocol,
         course_id: CourseId,
         name: str = "",
+        include_hidden: bool = False,
 ) -> GradeReport:
     """Return grade report for a course, optionally filtered by student name.
 
     name: case-insensitive partial match on fullname.
-    Returns the raw report dict from the client, with rows filtered if name is given.
+    include_hidden: if False (default), drop columns whose backing activity is
+      hidden from students. The Course total column is always kept.
     """
     report = client.get_grade_report(course_id)
 
     if name:
         needle = name.lower()
         report["rows"] = [r for r in report["rows"] if needle in str(r["fullname"]).lower()]
+
+    if not include_hidden:
+        hidden_cmids = {
+            mod["cmid"]
+            for sec in client.get_course_sections(course_id)
+            for mod in sec["modules"]
+            if not mod.get("visible", True)
+        }
+        if hidden_cmids:
+            cmids = report.get("column_cmids", {})
+            drop = {col for col, cmid in cmids.items() if cmid in hidden_cmids}
+            if drop:
+                report["columns"] = [c for c in report["columns"] if c not in drop]
+                report["rows"] = [
+                    {k: v for k, v in r.items() if k not in drop} for r in report["rows"]
+                ]
 
     return report
 

@@ -136,6 +136,10 @@ class GradeReport(TypedDict):
     # Grade rows have fixed keys (id, fullname, email) plus one dynamic key per
     # grade item — all values are strings or ints, never nested.
     rows: list[dict[str, str | int]]
+    # column name -> backing activity cmid (None for fullname/email/Course total
+    # and for manual grade items not tied to an activity). Used to drop columns
+    # whose activity is hidden from students.
+    column_cmids: dict[str, int | None]
 
 
 # Grade form fields are completely dynamic (HTML form element names).
