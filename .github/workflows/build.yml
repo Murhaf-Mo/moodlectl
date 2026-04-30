@@ -35,11 +35,10 @@ jobs:
         run: pytest
 
   # ── Gate 2: end-to-end suite against the live school.moodledemo.net demo ──-
-  # Reads MOODLE_USERNAME / MOODLE_PASSWORD from repo secrets so the credentials
-  # never sit in the repo (even though school.moodledemo.net's `teacher`/`moodle25`
-  # is a published demo login). Set them once with:
-  #     gh secret set MOODLE_USERNAME --body teacher
-  #     gh secret set MOODLE_PASSWORD --body moodle25
+  # The demo password rotates monthly (e.g. moodle25 → moodle26), so instead of
+  # storing it in a secret we let `moodlectl auth login` scrape the current
+  # password off the published login-page banner (school.moodledemo.net/login/
+  # index.php) — same source any human visitor sees. Username is "teacher".
   # The demo can occasionally be wiped or overloaded; if that happens the
   # whole release blocks (intentionally — better to surface a regression
   # than ship an installer that doesn't work against a real Moodle).
@@ -49,8 +48,7 @@ jobs:
     timeout-minutes: 15
     env:
       MOODLE_BASE_URL: https://school.moodledemo.net
-      MOODLE_USERNAME: ${{ secrets.MOODLE_USERNAME }}
-      MOODLE_PASSWORD: ${{ secrets.MOODLE_PASSWORD }}
+      MOODLE_USERNAME: teacher
     steps:
       - uses: actions/checkout@v5
 
