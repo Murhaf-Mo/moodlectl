@@ -154,6 +154,30 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
         driver.quit()
 
 
+def _scrape_demo_password(base_url: str, username: str) -> str | None:
+    """Scrape the current demo password for ``username`` from the login page.
+
+    The Moodle demo (school.moodledemo.net / Mount Orange) renders a banner on
+    /login/index.php like:
+        <p>...with the username <strong>teacher</strong> and password
+        <strong>moodle26</strong></p>
+    The password rotates roughly monthly, so hard-coding it (in CI secrets or
+    elsewhere) breaks releases — we read it from the same page instead.
+    Returns None if the page doesn't expose a banner for this username.
+    """
+    try:
+        r = requests.get(f"{base_url}/login/index.php", headers={"User-Agent": _UA}, timeout=15)
+    except requests.RequestException:
+        return None
+    # Username may have a trailing space inside the <strong> tag, hence \s*.
+    pattern = (
+        r"<strong>\s*" + re.escape(username) + r"\s*</strong>"
+        r"\s*and\s*password\s*<strong>\s*([^<\s]+)\s*</strong>"
+    )
+    m = re.search(pattern, r.text, flags=re.IGNORECASE)
+    return m.group(1) if m else None
+
+
 def _form_login(base_url: str, username: str, password: str) -> tuple[str, str] | None:
     """Log in via username + password against the standard Moodle login form.
 
@@ -299,9 +323,25 @@ def login(
     # ── Username/password mode (no browser, CI-friendly) ──────────────────────
     user = username or os.environ.get("MOODLE_USERNAME") or ""
     pw = password or os.environ.get("MOODLE_PASSWORD") or ""
+    is_demo = "moodledemo.net" in base_url
+    # Demo site rotates the password monthly. If the caller didn't supply one
+    # (or only set the username) and we're talking to the demo, scrape the
+    # current password off the login page banner.
+    if user and not pw and is_demo:
+        scraped = _scrape_demo_password(base_url, user)
+        if scraped:
+            console.print(f"[dim]Using demo password from login page banner: {scraped}[/dim]")
+            pw = scraped
     if user and pw:
         console.print(f"Logging in to [bold]{base_url}[/bold] as [bold]{user}[/bold]...")
         creds = _form_login(base_url, user, pw)
+        # Demo password rotated since the secret was set? Refresh from the
+        # login page banner and try once more before giving up.
+        if creds is None and is_demo:
+            scraped = _scrape_demo_password(base_url, user)
+            if scraped and scraped != pw:
+                console.print(f"[dim]Retrying with current demo password: {scraped}[/dim]")
+                creds = _form_login(base_url, user, scraped)
         if creds is None:
             raise typer.Exit(1)
         session_value, sesskey_value = creds
