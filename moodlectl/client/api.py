@@ -1663,6 +1663,7 @@ class MoodleAPI(MoodleClientBase):
             "errors": errors,
             "warnings": warnings,
             "response_url": post_resp.url,
+            "response_html": result_html,
         }
 
     def download_resource(self, cmid: Cmid, dest_dir: object) -> object:

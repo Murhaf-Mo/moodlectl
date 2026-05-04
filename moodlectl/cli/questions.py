@@ -183,15 +183,29 @@ def import_questions(
         raise typer.Exit(1)
 
     # --- Strict check ---
+    def _dump_response_html() -> None:
+        html = result.get("response_html") or ""
+        if not html:
+            return
+        import tempfile
+        from pathlib import Path as _P
+        out = _P(tempfile.gettempdir()) / "moodlectl_import_response.html"
+        out.write_text(html, encoding="utf-8")
+        console.print(f"[dim]Full Moodle response saved to: {out}[/dim]")
+        console.print("[dim]Tip: Moodle's banner is generic. Open the file and search for "
+                      "'Importing question' to find the specific failing entry.[/dim]")
+
     if result["errors"]:
         console.print("\n[red bold]Moodle reported errors:[/red bold]")
         for e in result["errors"]:
             console.print(f"  [red]X[/red] {e}")
+        _dump_response_html()
         raise typer.Exit(1)
     if result["warnings"]:
         console.print("\n[yellow bold]Moodle reported warnings (strict mode aborts):[/yellow bold]")
         for w in result["warnings"]:
             console.print(f"  [yellow]![/yellow] {w}")
+        _dump_response_html()
         raise typer.Exit(1)
 
     console.print("\n[green]Imported successfully.[/green]")
