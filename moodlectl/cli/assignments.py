@@ -152,17 +152,24 @@ def assignment_info(
 def list_submissions(
         cmid: int = typer.Option(..., "--assignment", "-a", help="Assignment cmid (from `assignments list`)."),
         ungraded: bool = typer.Option(False, "--ungraded", help="Show only submissions that have not been graded yet."),
+        resubmitted: bool = typer.Option(
+            False, "--resubmitted",
+            help="Show only students who uploaded a new attempt after being graded.",
+        ),
         output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List who submitted an assignment and which files they uploaded.
 
     Shows student name, email, submission status, grading status, and filenames.
     Use --ungraded to filter to submissions that still need a grade.
+    Use --resubmitted to surface students whose latest upload arrived after a
+    previous grade was given (Moodle's "Graded - resubmitted" reminder).
     Use `grading next --assignment` for an interactive grading session.
 
     Examples:
       moodlectl assignments submissions --assignment 18002
       moodlectl assignments submissions --assignment 18002 --ungraded
+      moodlectl assignments submissions --assignment 18002 --resubmitted
       moodlectl assignments submissions --assignment 18002 --output csv > submitted.csv
     """
     client = MoodleClient.from_config(Config.load())
@@ -175,9 +182,16 @@ def list_submissions(
 
     if ungraded:
         submissions = [s for s in submissions if assignments_feature.is_ungraded(s)]
+    if resubmitted:
+        submissions = [s for s in submissions if assignments_feature.is_resubmitted(s)]
 
     if not submissions:
-        msg = "[yellow]No ungraded submissions found.[/yellow]" if ungraded else "[yellow]No submissions found.[/yellow]"
+        if resubmitted:
+            msg = "[yellow]No resubmitted-after-grading entries found.[/yellow]"
+        elif ungraded:
+            msg = "[yellow]No ungraded submissions found.[/yellow]"
+        else:
+            msg = "[yellow]No submissions found.[/yellow]"
         console.print(msg)
         raise typer.Exit()
 
@@ -190,11 +204,15 @@ def list_submissions(
             "email": s["email"],
             "status": s["status"],
             "grading_status": s["grading_status"],
+            "resubmitted": "yes" if s.get("resubmitted") else "",
             "files": filenames,
         })
 
-    print_table(rows, columns=["user_id", "fullname", "email", "status", "grading_status", "files"],
-                fmt=cast(OutputFmt, output))
+    print_table(
+        rows,
+        columns=["user_id", "fullname", "email", "status", "grading_status", "resubmitted", "files"],
+        fmt=cast(OutputFmt, output),
+    )
 
 
 # ── missing ───────────────────────────────────────────────────────────────────
@@ -519,6 +537,10 @@ def create_assignment(
                                                help="Enable feedback comments (default: on)."),
         feedback_file: bool = typer.Option(False, "--feedback-file", help="Allow grader to upload feedback files."),
         visible: bool = typer.Option(False, "--visible/--hidden", help="Visibility on course page (default: hidden)."),
+        brief: list[str] = typer.Option(
+            [], "--brief", "-b",
+            help="Local file(s) to attach as the assignment brief / intro attachment. Repeatable.",
+        ),
 ):
     """Create an assignment activity in a course section.
 
@@ -574,9 +596,17 @@ def create_assignment(
     if max_attempts is not None:
         settings["max_attempts"] = max_attempts
 
+    brief_paths: list[str] = []
+    for p in brief:
+        if not Path(p).is_file():
+            console.print(f"[red]Brief file not found:[/red] {p}")
+            raise typer.Exit(1)
+        brief_paths.append(str(Path(p).resolve()))
+
     try:
         cmid = content_feature.create_module(
             client, CourseId(course), section, "assign", name, settings=settings,
+            file_path=brief_paths or None,
         )
     except (RuntimeError, ValueError) as exc:
         console.print(f"[red]Could not create assignment:[/red] {exc}")

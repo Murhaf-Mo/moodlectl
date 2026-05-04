@@ -106,7 +106,15 @@ moodlectl courses participants --course 51 --name "Frances"
 moodlectl courses inactive                             # students idle 14+ days (default)
 moodlectl courses inactive --course 69 --days 30
 moodlectl courses inactive --output csv > inactive.csv
+
+moodlectl courses settings --course 51                            # show every editable field
+moodlectl courses set --course 51 --field fullname --value "New Name"
+moodlectl courses set --course 51 --field visible --value 1
+moodlectl courses set --course 51 --field end_date --value "2027-01-15 00:00"
+moodlectl courses set --course 51 --field tags --value "tag1,tag2"
 ```
+
+`courses settings` lists every field accepted by `courses set` (fullname, shortname, summary, visible, start_date, end_date, enable_completion, tags, …). Dates use `"YYYY-MM-DD HH:MM"`.
 
 ### grades
 
@@ -153,19 +161,23 @@ moodlectl assignments create -c 51 -s 4 -n "Assignment 4 — SQL Filtering" \
   --due 2026-05-04T23:59 --max-grade 20 --filetypes ".pdf,.docx" --hidden
 moodlectl assignments create -c 51 -s 4 -n "Reflection essay" \
   --submission-types online_text --word-limit 500 --max-grade 10
+moodlectl assignments create -c 51 -s 4 -n "Project brief" \
+  --description "See attached." --brief brief.docx --brief rubric.pdf
 moodlectl assignments delete --assignment 18002 --course 51
 ```
 
 Downloads are organised `assignments/COURSE_SHORT/active|past/Assignment_Name/Student_Name_ID/`. Instructor briefs land
 in a sibling `_brief/` folder.
 
-`create` accepts every common assignment field as flags: `--due`, `--cutoff`,
-`--available-from`, `--max-grade`, `--max-files`, `--filetypes`,
-`--submission-types` (`file`, `online_text`, or both, comma-separated),
-`--word-limit`, `--max-attempts`, `--attempts-method` (`none`/`manual`/`untilpass`),
-`--blind-marking`, `--team-submission`, `--feedback-comments` /
-`--no-feedback-comments`, `--feedback-file`, `--visible` / `--hidden` (default
-hidden). Dates accept ISO `2026-05-04T23:59` or space-separated form.
+`create` accepts every common assignment field as flags: `--description` (HTML
+or plain text), `--due`, `--cutoff`, `--available-from`, `--max-grade`,
+`--max-files`, `--filetypes`, `--submission-types` (`file`, `online_text`, or
+both, comma-separated), `--word-limit`, `--max-attempts`, `--attempts-method`
+(`none`/`manual`/`untilpass`), `--blind-marking`, `--team-submission`,
+`--feedback-comments` / `--no-feedback-comments`, `--feedback-file`,
+`--visible` / `--hidden` (default hidden), and `--brief` / `-b` to attach one
+or more local files as the assignment brief (repeatable). Dates accept ISO
+`2026-05-04T23:59` or space-separated form.
 
 ### grading
 

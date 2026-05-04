@@ -1034,6 +1034,11 @@ class MoodleAPI(MoodleClientBase):
             status_text = cols[4].get_text(strip=True)
             grading_status = cols[5].get_text(strip=True) if len(cols) > 5 else ""
 
+            # Moodle attaches a div.gradingreminder ("Graded - resubmitted") to
+            # the status cell when a student uploads a new submission after the
+            # previous attempt was already graded.
+            resubmitted = bool(cols[4].find(class_="gradingreminder"))
+
             # col 8: file submissions
             files: list[FileRef] = []
             for a in cols[8].find_all("a"):
@@ -1050,6 +1055,7 @@ class MoodleAPI(MoodleClientBase):
                 "email": email,
                 "status": status_text,
                 "grading_status": grading_status,
+                "resubmitted": resubmitted,
                 "files": files,
             })
 
@@ -2461,7 +2467,7 @@ class MoodleAPI(MoodleClientBase):
             modname: str,
             name: str,
             settings: dict[str, Any] | None = None,
-            file_path: str | None = None,
+            file_path: str | list[str] | None = None,
     ) -> Cmid:
         """Create a new course module.
 
@@ -2469,9 +2475,10 @@ class MoodleAPI(MoodleClientBase):
         modname     — Moodle module type (label, page, url, forum, assign, quiz, resource, ...).
         name        — human-readable module name (ignored by labels, which use the intro).
         settings    — optional dict of curated settings (see _SETTINGS_SCHEMA).
-        file_path   — local file to upload for `resource` (and any other filemanager-
-                      backed module). The file is pushed into the form's draft area
-                      before the form is POSTed.
+        file_path   — local file(s) to upload into the module's filemanager. Pass a
+                      single path (string) or a list. Currently routed to:
+                        resource → the main `files` draft area
+                        assign   → the `introattachments` shown to students.
 
         Returns the cmid of the newly created module.
         """
@@ -2487,18 +2494,32 @@ class MoodleAPI(MoodleClientBase):
         form_data = _parse_modedit_form(soup, f"add={modname}")
 
         if file_path:
-            if modname != "resource":
+            # Module-specific draft-itemid field for the filemanager that holds
+            # the uploaded file(s). resource → main file; assign → intro
+            # attachments shown to students alongside the brief.
+            draft_field_by_mod = {
+                "resource": "files",
+                "assign": "introattachments",
+            }
+            draft_field = draft_field_by_mod.get(modname)
+            if draft_field is None:
                 raise ValueError(
-                    f"file_path is only supported for 'resource' modules, not {modname!r}."
+                    f"file_path is not supported for {modname!r} modules "
+                    f"(supported: {', '.join(sorted(draft_field_by_mod))})."
                 )
-            draft_itemid = form_data.get("files")
+            draft_itemid = form_data.get(draft_field)
             if not draft_itemid:
-                raise RuntimeError("modedit form has no 'files' draft itemid — cannot upload.")
-            self._upload_to_draft(soup, draft_itemid, file_path)
-            if not name:
+                raise RuntimeError(
+                    f"modedit form has no {draft_field!r} draft itemid — cannot upload."
+                )
+            paths = [file_path] if isinstance(file_path, str) else list(file_path)
+            for p in paths:
+                self._upload_to_draft(soup, draft_itemid, p)
+            if modname == "resource" and not name:
                 import os
-                name = os.path.splitext(os.path.basename(file_path))[0]
-            form_data["name"] = name
+                name = os.path.splitext(os.path.basename(paths[0]))[0]
+            if name:
+                form_data["name"] = name
 
         if name and "name" in form_data:
             form_data["name"] = name

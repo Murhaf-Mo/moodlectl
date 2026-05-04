@@ -150,14 +150,15 @@ def create_module(
         modname: str,
         name: str,
         settings: dict[str, Any] | None = None,
-        file_path: str | None = None,
+        file_path: str | list[str] | None = None,
 ) -> Cmid:
     """Create a new module and return its cmid.
 
     modname is the Moodle activity plugin name (label, page, url, assign, quiz, ...).
     name is required for everything except labels (where the content body is the display).
     settings is the curated settings dict (same keys accepted by `content set`).
-    file_path uploads a local file into the module's draft area — only valid for `resource`.
+    file_path uploads local file(s) into the module's filemanager — supported for
+    `resource` (main file) and `assign` (intro attachments / brief).
     """
     modname = modname.strip().lower()
     if modname not in _VALID_MODNAMES:
@@ -165,8 +166,8 @@ def create_module(
             f"Unknown module type {modname!r}. "
             f"Supported: {', '.join(sorted(_VALID_MODNAMES))}"
         )
-    if file_path and modname != "resource":
-        raise ValueError(f"--file is only valid for resource modules, not {modname!r}")
+    if file_path and modname not in {"resource", "assign"}:
+        raise ValueError(f"--file is only valid for resource and assign modules, not {modname!r}")
     name = (name or "").strip()
     if not name and modname != "label" and not file_path:
         raise ValueError(f"--name is required for {modname} modules")

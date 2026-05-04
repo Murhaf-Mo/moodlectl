@@ -202,6 +202,11 @@ def is_ungraded(submission: Submission) -> bool:
     return not bool(re.search(r"\d", gs))
 
 
+def is_resubmitted(submission: Submission) -> bool:
+    """Return True if the student uploaded a new attempt after being graded."""
+    return bool(submission.get("resubmitted"))
+
+
 def get_all_ungraded_submissions(
         client: MoodleClientProtocol,
         course_ids: list[CourseId],
