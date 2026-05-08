@@ -31,6 +31,15 @@ CLI command → features/ function → MoodleClient method → HTTP
 Try `ajax()` first. If it returns `"Can't find data record in database table external_functions"`, scrape the page
 instead. Grade pages redirect to `/login/index.php` on expired sessions — check `resp.url` after following redirects.
 
+### Question-bank export is per-question
+
+This Moodle (Mountain Orange variant) exposes only
+`/question/bank/exporttoxml/exportone.php?id=Q&sesskey=…&courseid=…`, not a
+bulk-category export. `client.export_question_bank()` lists the category, GETs
+one XML doc per question, strips each per-file `<?xml ?>` + `<quiz>` envelope,
+and stitches the `<question>` blocks back together with a single category
+declaration so the result round-trips through `import_question_bank()`.
+
 ### Grade submission is a 3-step process
 
 `client.submit_grade_for_user()` must:

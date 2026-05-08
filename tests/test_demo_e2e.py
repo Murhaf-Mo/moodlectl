@@ -771,6 +771,24 @@ class TestQuestionsImport:
             run("questions", "list",
                 "--course", str(SANDBOX_COURSE),
                 "--category", "e2e-test-category")
+
+            # Round-trip: export the freshly-imported category and confirm the
+            # output is parseable Moodle XML containing the original question.
+            export_path = tmp_path / "e2e-export.xml"
+            run("questions", "export",
+                "--course", str(SANDBOX_COURSE),
+                "--category", "e2e-test-category",
+                "--output", str(export_path))
+            assert export_path.is_file(), "export did not produce a file"
+            xml_text = export_path.read_text(encoding="utf-8")
+            assert xml_text.lstrip().startswith("<?xml"), xml_text[:200]
+            assert "<quiz>" in xml_text and "</quiz>" in xml_text
+            assert 'type="category"' in xml_text  # category declaration
+            assert "e2e sample question" in xml_text  # the imported question
+            # Re-importing the export should be valid XML for our own importer.
+            run("questions", "import",
+                "--course", str(SANDBOX_COURSE), "--file", str(export_path),
+                "--dry-run")
         finally:
             run("questions", "delete-category",
                 "--course", str(SANDBOX_COURSE),

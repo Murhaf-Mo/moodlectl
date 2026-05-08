@@ -446,6 +446,62 @@ def list_questions(
     console.print(tbl)
 
 
+@app.command("export")
+def export_questions(
+        course: int = typer.Option(..., "--course", "-c", help="Course ID."),
+        category: str = typer.Option(..., "--category",
+                                     help="Question-bank category name (exact match)."),
+        output: str = typer.Option(..., "--output", "-o",
+                                   help="Destination XML file (e.g. final_mcq.xml)."),
+        force: bool = typer.Option(False, "--force", "-f",
+                                   help="Overwrite the destination file if it exists."),
+) -> None:
+    """Export a question-bank category to a Moodle XML file.
+
+    Resolves the category by exact name, fetches every question's XML one
+    by one (this Moodle exposes only the per-question export endpoint), and
+    stitches them into a single bank prefixed with a `<question type="category">`
+    declaration. The resulting file round-trips through
+    `moodlectl questions import` — categories declared in the file are
+    re-created on import via `catfromfile=1` / `contextfromfile=1`.
+
+    Examples:
+      moodlectl questions export -c 568 --category "Final_MCQ" -o final_mcq.xml
+      moodlectl questions export -c 568 --category "Quiz 3 — CH6 + CH7" -o q3.xml --force
+    """
+    out_path = Path(output)
+    if out_path.exists() and not force:
+        console.print(
+            f"[red]File exists: {out_path}[/red] — pass [bold]--force[/bold] to overwrite."
+        )
+        raise typer.Exit(1)
+
+    client = MoodleClient.from_config(Config.load())
+    try:
+        cat_id, ctx_id = client.find_question_category(CourseId(course), category)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    console.print(
+        f"[dim]Resolved category {category!r} -> id={cat_id} (context {ctx_id})[/dim]"
+    )
+
+    try:
+        xml_text = client.export_question_bank(
+            CourseId(course), cat_id, ctx_id, category,
+        )
+    except RuntimeError as exc:
+        console.print(f"[red]Export failed:[/red] {exc}")
+        raise typer.Exit(1)
+
+    out_path.write_text(xml_text, encoding="utf-8")
+    n = xml_text.count("<question type=") - xml_text.count('type="category"')
+    console.print(
+        f"[green]Exported[/green] {n} question(s) -> [bold]{out_path}[/bold] "
+        f"({len(xml_text.encode('utf-8'))} bytes)"
+    )
+
+
 @app.command("delete-category")
 def delete_category(
         course: int = typer.Option(..., "--course", "-c", help="Course ID."),

@@ -380,6 +380,20 @@ moodlectl questions list -c 581 --category "Quiz 3 — CH6 + CH7"
 moodlectl questions list -c 581 --category "Quiz 3 — CH6 + CH7" -o json
 ```
 
+**`export`** writes a category back out to a Moodle XML file. Resolves the
+category by exact name, fetches every question's XML one by one (this is the
+only endpoint Mountain Orange / Workplace Moodle exposes — there is no bulk
+export URL), and stitches them into a single bank prefixed with a
+`<question type="category">` declaration. The resulting file round-trips
+through `moodlectl questions import`.
+
+```bash
+moodlectl questions export -c 568 --category "Final_MCQ" -o final_mcq.xml
+moodlectl questions export -c 568 --category "Quiz 3 — CH6 + CH7" -o q3.xml --force
+```
+
+Pass `--force` to overwrite an existing destination file.
+
 **`delete-category`** deletes a question-bank category and every question in
 it. Two-step flow: bulk-deletes the questions, then removes the now-empty
 category. Irreversible — once questions are purged from the bank they can't

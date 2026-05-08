@@ -1387,6 +1387,71 @@ class MoodleAPI(MoodleClientBase):
             "category_deleted": int(category_deleted),
         }
 
+    def export_question_bank(
+            self, course_id: CourseId, category_id: int, context_id: int,
+            category_name: str,
+    ) -> str:
+        """Export every question in a category as a single Moodle XML document.
+
+        Mountain Orange / our institutional Moodle exposes only the
+        per-question endpoint `/question/bank/exporttoxml/exportone.php?id=Q`,
+        not a bulk export. We list the category, fetch one XML per question,
+        strip the per-file `<?xml ?>` + `<quiz>` envelope, and stitch the
+        `<question>` blocks back into a single bank prefixed with a
+        `<question type="category">` declaration so the file is round-trip
+        importable via `moodlectl questions import`.
+        """
+        questions = self.list_questions_in_category(course_id, category_id, context_id)
+        if not questions:
+            raise RuntimeError(f"Category {category_name!r} contains no questions.")
+
+        parts: list[str] = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            "<quiz>",
+            "",
+            '  <question type="category">',
+            "    <category>",
+            f"      <text>$course$/top/{category_name}</text>",
+            "    </category>",
+            "  </question>",
+            "",
+        ]
+
+        for q in questions:
+            qid = int(q["id"])
+            resp = self._session.get(
+                f"{self.base_url}/question/bank/exporttoxml/exportone.php",
+                params={
+                    "id": qid,
+                    "sesskey": self.sesskey,
+                    "courseid": int(course_id),
+                },
+                timeout=60,
+            )
+            if resp.status_code != 200 or "/login/index.php" in resp.url:
+                raise RuntimeError(
+                    f"Failed to export question id={qid} (HTTP {resp.status_code})."
+                )
+            # The endpoint returns a complete Moodle XML doc with a single
+            # <question>. Pull the comment + question block back out.
+            m = re.search(
+                r'(<!--\s*question:\s*\d+\s*-->\s*<question\b.+?</question>)',
+                resp.text, re.DOTALL,
+            )
+            if m is None:
+                # Fall back to just the <question> block if the comment is missing.
+                m = re.search(r'(<question\b(?!\s+type="category").+?</question>)',
+                              resp.text, re.DOTALL)
+            if m is None:
+                raise RuntimeError(
+                    f"Could not parse exported XML for question id={qid}."
+                )
+            parts.append(m.group(1))
+            parts.append("")
+
+        parts.append("</quiz>")
+        return "\n".join(parts)
+
     def get_quiz_attempts(self, cmid: Cmid) -> list[dict[str, str]]:
         """Scrape the quiz overview report at /mod/quiz/report.php for one quiz.
 
