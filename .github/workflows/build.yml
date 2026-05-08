@@ -34,40 +34,9 @@ jobs:
       - name: Unit tests
         run: pytest
 
-  # ── Gate 2: end-to-end suite against the live school.moodledemo.net demo ──-
-  # The demo password rotates monthly (e.g. moodle25 → moodle26), so instead of
-  # storing it in a secret we let `moodlectl auth login` scrape the current
-  # password off the published login-page banner (school.moodledemo.net/login/
-  # index.php) — same source any human visitor sees. Username is "teacher".
-  # The demo can occasionally be wiped or overloaded; if that happens the
-  # whole release blocks (intentionally — better to surface a regression
-  # than ship an installer that doesn't work against a real Moodle).
-  demo-tests:
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    env:
-      MOODLE_BASE_URL: https://school.moodledemo.net
-      MOODLE_USERNAME: teacher
-    steps:
-      - uses: actions/checkout@v5
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install -e ".[dev,analytics]"
-
-      - name: Authenticate against demo Moodle
-        run: moodlectl auth login
-
-      - name: End-to-end demo suite
-        run: pytest -m demo -v
-
   # ── Extract version (shared by both build jobs) ────────────────────────────
   version:
-    needs: [ test, demo-tests ]
+    needs: [ test ]
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}

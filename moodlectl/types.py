@@ -128,6 +128,9 @@ class Submission(TypedDict):
     email: str
     status: str
     grading_status: str
+    # True when the student uploaded a new submission after being graded —
+    # Moodle marks the row with a "Graded - resubmitted" reminder.
+    resubmitted: bool
     files: list[FileRef]
 
 
@@ -423,7 +426,7 @@ class MoodleClientProtocol(Protocol):
             modname: str,
             name: str,
             settings: dict[str, Any] | None = None,
-            file_path: str | None = None,
+            file_path: str | list[str] | None = None,
     ) -> Cmid: ...
 
     def get_course_form(self, course_id: CourseId) -> dict[str, str]: ...
