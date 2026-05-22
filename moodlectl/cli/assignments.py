@@ -299,6 +299,10 @@ def ungraded_submissions(
             None, "--course", "-c", help="Course ID (repeatable). Omit for all your courses."
         ),
         status: str = typer.Option("all", "--status", "-s", help="Filter by assignment status: active, past, or all."),
+        include_resubmitted: bool = typer.Option(
+            False, "--include-resubmitted",
+            help="Also include submissions re-uploaded after a previous grade (Moodle's 'Graded - resubmitted').",
+        ),
         output: str = typer.Option("table", "--output", "-o", help="Output format: table, json, or csv."),
 ):
     """List all submitted assignments that have not been graded yet, across all courses.
@@ -310,23 +314,31 @@ def ungraded_submissions(
       moodlectl assignments ungraded
       moodlectl assignments ungraded --status past
       moodlectl assignments ungraded --course 590
+      moodlectl assignments ungraded --include-resubmitted
       moodlectl assignments ungraded --output csv > ungraded.csv
     """
     client, course_ids, course_map = _load(tuple(course or []))
 
     ungraded = assignments_feature.get_all_ungraded_submissions(
-        client, course_ids, course_map=course_map, status=cast(AssignmentStatus, status)
+        client, course_ids, course_map=course_map,
+        status=cast(AssignmentStatus, status),
+        include_resubmitted=include_resubmitted,
     )
 
     if not ungraded:
         console.print("[green]All submissions are graded.[/green]")
         raise typer.Exit()
 
-    console.print(f"\n[yellow]{len(ungraded)} ungraded submission(s) found.[/yellow]\n")
+    resub_n = sum(1 for r in ungraded if r.get("resubmitted"))
+    suffix = f" ({resub_n} resubmitted)" if include_resubmitted and resub_n else ""
+    console.print(f"\n[yellow]{len(ungraded)} ungraded submission(s) found{suffix}.[/yellow]\n")
+    columns = ["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email",
+               "grading_status", "files"]
+    if include_resubmitted:
+        columns.insert(-1, "resubmitted")
     print_table(
         ungraded,
-        columns=["course", "assignment", "assignment_status", "due_date", "user_id", "fullname", "email",
-                 "grading_status", "files"],
+        columns=columns,
         fmt=cast(OutputFmt, output),
     )
 

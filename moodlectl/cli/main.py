@@ -18,6 +18,7 @@ from moodlectl.cli import (
     auth,
     content,
     courses,
+    gradebook,
     grades,
     grading,
     messages,
@@ -39,6 +40,7 @@ app.add_typer(analytics.app, name="analytics")
 app.add_typer(auth.app, name="auth")
 app.add_typer(content.app, name="content")
 app.add_typer(courses.app, name="courses")
+app.add_typer(gradebook.app, name="gradebook")
 app.add_typer(grades.app, name="grades")
 app.add_typer(assignments.app, name="assignments")
 app.add_typer(grading.app, name="grading")

@@ -21,7 +21,13 @@ from moodlectl.types import (
     FileRef,
     ForumPost,
     FormFields,
+    AGGREGATION_BY_CODE,
+    GradeCategory,
+    GradeCategoryId,
+    GradeItem,
+    GradeItemId,
     GradeReport,
+    GradeTree,
     Participant,
     SectionId,
     Submission,
@@ -2732,3 +2738,477 @@ class MoodleAPI(MoodleClientBase):
                 f"Moodle rejected the form for cmid={cmid}: {msg or 'unknown error'}\n"
                 f"Full response saved to: {tmp.name}"
             )
+
+    # ── Gradebook setup (read-only — Phase 1) ────────────────────────────────
+
+    def get_gradebook_tree(self, course_id: CourseId) -> GradeTree:
+        """Scrape `/grade/edit/tree/index.php?id={course}` into a GradeTree.
+
+        Walks the table in document order. Category rows carry their own
+        `data-category="cgN"`; item rows carry `data-itemid="N"` and
+        `data-parent-category="cgN"`. Children are attached to the nearest
+        already-seen category with the matching `cg` id.
+
+        Only structural + data-attribute fields are filled here (name, eid,
+        aggregation code, weight, grademax, hidden). Per-node attributes that
+        require the edit form (droplow, idnumber, calculation) are populated
+        by `features.gradebook.pull()` via the form-specific methods below.
+        """
+        url = f"{self.base_url}/grade/edit/tree/index.php?id={int(course_id)}"
+        resp = self._session.get(url)
+        if "/login/" in resp.url:
+            raise RuntimeError(f"Session expired fetching gradebook tree. {_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        table = soup.find("table", id="grade_edit_tree_table")
+        if not isinstance(table, Tag):
+            raise RuntimeError("Could not locate grade_edit_tree_table on the gradebook setup page.")
+
+        cats_by_eid: dict[str, GradeCategory] = {}
+        root: GradeCategory | None = None
+
+        def _f(val: str) -> float:
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                return 0.0
+
+        for tr in table.find_all("tr"):
+            if not isinstance(tr, Tag):
+                continue
+            classes = _classes(tr)
+            if "spacer" in classes or not classes:
+                continue
+            cell = tr.find("td") or tr.find("th")
+            cell_text = cell.get_text(" ", strip=True) if isinstance(cell, Tag) else ""
+
+            # Name lives inside `<div class="rowtitle">` for both categories and items.
+            rowtitle = tr.find("div", class_="rowtitle")
+            name = rowtitle.get_text(" ", strip=True) if isinstance(rowtitle, Tag) else cell_text
+
+            if "category" in classes:
+                cat_eid = _attr(tr, "data-category")           # e.g. "cg1524"
+                if not cat_eid:
+                    continue
+                cat_id = int(cat_eid[2:])
+                parent_eid = _attr(tr, "data-parent-category")  # "" for root
+                parent_cat_id: GradeCategoryId | None = (
+                    GradeCategoryId(int(parent_eid[2:])) if parent_eid else None
+                )
+                agg_code = int(_attr(tr, "data-aggregation") or "0")
+                cat: GradeCategory = {
+                    "eid": cat_eid,
+                    "cat_id": GradeCategoryId(cat_id),
+                    "item_id": GradeItemId(int(_attr(tr, "data-itemid") or "0")),
+                    "parent_cat_id": parent_cat_id,
+                    "name": name,
+                    "aggregation": AGGREGATION_BY_CODE.get(agg_code, "sum"),
+                    "droplow": 0,
+                    "keephigh": 0,
+                    "aggregateonlygraded": True,
+                    "aggregateoutcomes": False,
+                    "grademax": _f(_attr(tr, "data-grademax")),
+                    "weight": _f(_attr(tr, "data-aggregationcoef")) or None,
+                    "weight_override": False,
+                    "aggregationcoef2": None,
+                    "hidden": _attr(tr, "data-hidden") == "true",
+                    "idnumber": "",
+                    "items": [],
+                    "subcategories": [],
+                }
+                cats_by_eid[cat_eid] = cat
+                if parent_cat_id is None:
+                    root = cat
+                else:
+                    parent = cats_by_eid.get(f"cg{int(parent_cat_id)}")
+                    if parent is not None:
+                        parent["subcategories"].append(cat)
+                continue
+
+            if "item" in classes and "categoryitem" not in classes and "courseitem" not in classes:
+                # Real grade item (activity-backed, manual, or calculated).
+                item_id = int(_attr(tr, "data-itemid") or "0")
+                if not item_id:
+                    continue
+                parent_eid = _attr(tr, "data-parent-category")
+                parent_cat_id = (
+                    GradeCategoryId(int(parent_eid[2:])) if parent_eid else None
+                )
+                # Kind: read the cell text — Moodle prints "Quiz", "Assignment",
+                # or "Manual item" between the select-label and the rowtitle.
+                kind: str = "mod"
+                if "Manual item" in cell_text:
+                    kind = "manual"
+                elif "Quiz" in cell_text:
+                    kind = "quiz"
+                elif "Assignment" in cell_text:
+                    kind = "assign"
+
+                # cmid (for activity items): the modedit link, if present.
+                cmid: int | None = None
+                for a in tr.find_all("a", href=True):
+                    if not isinstance(a, Tag):
+                        continue
+                    href = _attr(a, "href")
+                    m = re.search(r"/mod/[^/]+/view\.php\?id=(\d+)", href)
+                    if m:
+                        cmid = int(m.group(1))
+                        break
+
+                item: GradeItem = {
+                    "eid": f"ig{item_id}",
+                    "item_id": GradeItemId(item_id),
+                    "parent_cat_id": parent_cat_id,
+                    "name": name,
+                    "kind": kind,  # type: ignore[typeddict-item]
+                    "cmid": cmid,
+                    "grademax": _f(_attr(tr, "data-grademax")),
+                    "grademin": 0.0,
+                    "weight": _f(_attr(tr, "data-aggregationcoef")) or None,
+                    "weight_override": False,
+                    "aggregationcoef2": None,
+                    "hidden": _attr(tr, "data-hidden") == "true",
+                    "locked": False,
+                    "idnumber": "",
+                    "calculation": "",
+                }
+                if parent_cat_id is not None:
+                    parent = cats_by_eid.get(f"cg{int(parent_cat_id)}")
+                    if parent is not None:
+                        parent["items"].append(item)
+                continue
+
+        if root is None:
+            raise RuntimeError("Gradebook tree had no root category — page layout may have changed.")
+        return {"course_id": course_id, "root": root}
+
+    def _get_grade_form_fields(self, url: str) -> dict[str, str]:
+        """Shared scrape: load a /grade/edit/tree/ form page and return its input/select/textarea values."""
+        resp = self._session.get(url)
+        if "/login/" in resp.url:
+            raise RuntimeError(f"Session expired fetching {url}. {_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        # The page also includes an editmode toggle form; match the form whose
+        # action is the same /grade/edit/tree/ endpoint we just fetched.
+        form: Tag | None = None
+        for candidate in soup.find_all("form", method="post"):
+            if not isinstance(candidate, Tag):
+                continue
+            action = _attr(candidate, "action")
+            if "/grade/edit/tree/" in action:
+                form = candidate
+                break
+        if form is None:
+            raise RuntimeError(f"No /grade/edit/tree/ form found at {url}")
+        out: dict[str, str] = {}
+        for inp in form.find_all(["input", "select", "textarea"]):
+            if not isinstance(inp, Tag):
+                continue
+            name = _attr(inp, "name")
+            if not name:
+                continue
+            tag_name = inp.name
+            if tag_name == "select":
+                opt = inp.find("option", selected=True)
+                out[name] = _attr(opt, "value") if isinstance(opt, Tag) else ""
+            elif tag_name == "textarea":
+                out[name] = inp.text or ""
+            else:
+                itype = (_attr(inp, "type") or "text").lower()
+                if itype == "checkbox":
+                    # Checkboxes: only submit value when "checked"; an unchecked
+                    # box is omitted. The preceding hidden field provides the
+                    # "off" default. Last write to `out[name]` wins, which is
+                    # exactly the on/off semantic we want.
+                    if inp.has_attr("checked"):
+                        out[name] = _attr(inp, "value") or "1"
+                    elif name not in out:
+                        out[name] = "0"
+                elif itype == "radio":
+                    if inp.has_attr("checked"):
+                        out[name] = _attr(inp, "value")
+                elif itype in ("submit", "button", "image"):
+                    continue
+                else:
+                    out[name] = _attr(inp, "value")
+        return out
+
+    def get_grade_category_form(self, course_id: CourseId, cat_id: GradeCategoryId) -> dict[str, str]:
+        """Return the category edit form fields verbatim."""
+        url = f"{self.base_url}/grade/edit/tree/category.php?courseid={int(course_id)}&id={int(cat_id)}"
+        return self._get_grade_form_fields(url)
+
+    def get_grade_item_form(self, course_id: CourseId, item_id: GradeItemId) -> dict[str, str]:
+        """Return the grade-item edit form fields verbatim."""
+        url = f"{self.base_url}/grade/edit/tree/item.php?courseid={int(course_id)}&id={int(item_id)}"
+        return self._get_grade_form_fields(url)
+
+    def _detect_grade_form_error(self, resp: Any, *, expected_form_path: str, label: str) -> None:
+        """Raise if a /grade/edit/tree/ form POST landed back on the form page (= validation failed).
+
+        A successful save redirects to `/grade/edit/tree/index.php`. Staying on
+        the form URL means Moodle rejected at least one field; the error text
+        is usually in `.invalid-feedback` or `.alert-danger`.
+        """
+        if expected_form_path not in resp.url:
+            return
+        import tempfile
+        soup = BeautifulSoup(resp.text, "html.parser")
+        msg = ""
+        for tag in [
+            *soup.find_all(class_="invalid-feedback"),
+            *soup.find_all(class_="alert-danger"),
+            *soup.find_all(class_="error"),
+            *soup.find_all(id=re.compile(r"^id_error_")),
+        ]:
+            text = tag.get_text(" ", strip=True)
+            if text:
+                msg = text
+                break
+        tmp = tempfile.NamedTemporaryFile(
+            delete=False, suffix=".html", prefix=f"moodlectl_gb_{label}_",
+        )
+        tmp.write(resp.text.encode("utf-8", errors="replace"))
+        tmp.close()
+        raise RuntimeError(
+            f"Moodle rejected the gradebook form ({label}): {msg or 'unknown error'}.\n"
+            f"Full response saved to: {tmp.name}"
+        )
+
+    def save_grade_category(
+            self,
+            course_id: CourseId,
+            cat_id: GradeCategoryId,
+            changes: dict[str, str],
+            parent_cat_id: GradeCategoryId | None = None,
+    ) -> GradeCategoryId:
+        """Save a category form via POST to `/grade/edit/tree/category.php`.
+
+        - cat_id != 0 → update an existing category. Fetches the live form first
+          (so unchanged fields round-trip verbatim), merges `changes`, then POSTs.
+        - cat_id == 0 → create a new category under `parent_cat_id`. `changes`
+          must include at least `fullname` and `aggregation`. Returns the new
+          category id (parsed from the post-save tree page).
+        """
+        if cat_id == 0:
+            if parent_cat_id is None:
+                raise ValueError("save_grade_category(create): parent_cat_id is required")
+            url = f"{self.base_url}/grade/edit/tree/category.php?courseid={int(course_id)}&parent={int(parent_cat_id)}"
+            form = self._get_grade_form_fields(url)
+        else:
+            url = f"{self.base_url}/grade/edit/tree/category.php?courseid={int(course_id)}&id={int(cat_id)}"
+            form = self._get_grade_form_fields(url)
+
+        form.update(changes)
+        form["submitbutton"] = "Save changes"
+
+        resp = self._post_form(url, form, referer=url)
+        self._detect_grade_form_error(resp, expected_form_path="/grade/edit/tree/category.php", label=f"category-{cat_id}")
+
+        if cat_id != 0:
+            return cat_id
+
+        # Resolve the new category id from the post-save tree.
+        tree = self.get_gradebook_tree(course_id)
+        wanted_name = form.get("fullname", "")
+        new_id: GradeCategoryId | None = None
+
+        def _walk(cat: GradeCategory) -> None:
+            nonlocal new_id
+            if new_id is not None:
+                return
+            for sub in cat["subcategories"]:
+                if sub["name"] == wanted_name and (
+                        parent_cat_id is None or sub.get("parent_cat_id") == parent_cat_id
+                ):
+                    new_id = sub["cat_id"]
+                    return
+                _walk(sub)
+
+        _walk(tree["root"])
+        if new_id is None:
+            raise RuntimeError(
+                f"Created category {wanted_name!r} but couldn't locate it in the refreshed tree."
+            )
+        return new_id
+
+    def save_grade_item(
+            self,
+            course_id: CourseId,
+            item_id: GradeItemId,
+            changes: dict[str, str],
+            parent_cat_id: GradeCategoryId | None = None,
+    ) -> GradeItemId:
+        """Save an item form via POST to `/grade/edit/tree/item.php`.
+
+        - item_id != 0 → update an existing item. Activity-backed items (quiz,
+          assign) accept only a subset (idnumber, weight, hidden); Moodle
+          silently ignores grademax/itemname changes for these.
+        - item_id == 0 → create a new manual or calculated item under `parent_cat_id`.
+          `changes` must include `itemname` and `grademax` at minimum.
+        """
+        if item_id == 0:
+            url = f"{self.base_url}/grade/edit/tree/item.php?courseid={int(course_id)}"
+            if parent_cat_id is not None:
+                url += f"&parent={int(parent_cat_id)}"
+            form = self._get_grade_form_fields(url)
+        else:
+            url = f"{self.base_url}/grade/edit/tree/item.php?courseid={int(course_id)}&id={int(item_id)}"
+            form = self._get_grade_form_fields(url)
+
+        form.update(changes)
+        form["submitbutton"] = "Save changes"
+
+        resp = self._post_form(url, form, referer=url)
+        self._detect_grade_form_error(resp, expected_form_path="/grade/edit/tree/item.php", label=f"item-{item_id}")
+
+        if item_id != 0:
+            return item_id
+
+        # Locate the new item by name in the refreshed tree.
+        tree = self.get_gradebook_tree(course_id)
+        wanted_name = form.get("itemname", "")
+        new_id: GradeItemId | None = None
+
+        def _walk(cat: GradeCategory) -> None:
+            nonlocal new_id
+            if new_id is not None:
+                return
+            for it in cat["items"]:
+                if it["name"] == wanted_name and (
+                        parent_cat_id is None or it.get("parent_cat_id") == parent_cat_id
+                ):
+                    new_id = it["item_id"]
+                    return
+            for sub in cat["subcategories"]:
+                _walk(sub)
+
+        _walk(tree["root"])
+        if new_id is None:
+            raise RuntimeError(
+                f"Created item {wanted_name!r} but couldn't locate it in the refreshed tree."
+            )
+        return new_id
+
+    def move_grade_item(
+            self,
+            course_id: CourseId,
+            item_eid: str,
+            target_eid: str,
+            first: bool = True,
+    ) -> None:
+        """Move a grade item (or category) to a new position in the tree.
+
+        - `item_eid` — the entity being moved (e.g. `"ig8686"` or `"cg1524"`).
+        - `target_eid` — the anchor entity. Combined with `first`:
+            - `first=True`  → move INTO `target_eid` as its first child
+              (use a category eid like `"cg1524"`).
+            - `first=False` → move RIGHT AFTER `target_eid` (sibling-level).
+        - GET request to `index.php?action=move` — Moodle handles it server-side
+          and redirects back to the tree.
+        """
+        url = (
+            f"{self.base_url}/grade/edit/tree/index.php"
+            f"?id={int(course_id)}&action=move&eid={item_eid}"
+            f"&moveafter={target_eid}&first={1 if first else 0}&sesskey={self.sesskey}"
+        )
+        resp = self._session.get(url)
+        if "/login/" in resp.url:
+            raise RuntimeError(f"Session expired during move. {_SESSION_EXPIRED}")
+        if resp.status_code >= 400:
+            raise RuntimeError(f"Move failed for {item_eid} → {target_eid} (status {resp.status_code})")
+        # On success Moodle redirects to /grade/edit/tree/index.php?id={course}
+        # (without the action= params). If we still see action=move in the URL,
+        # something rejected the request silently.
+        if "action=move" in resp.url:
+            raise RuntimeError(
+                f"Moodle did not apply the move (URL still has action=move): {resp.url}"
+            )
+
+    def save_grade_calculation(
+            self,
+            course_id: CourseId,
+            item_id: GradeItemId,
+            formula: str,
+            idnumber_overrides: dict[GradeItemId, str] | None = None,
+    ) -> None:
+        """Save a calculation formula via POST to `/grade/edit/tree/calculation.php`.
+
+        - `formula` is the textarea contents (e.g. `=max([[mid]], [[fin]]/30*20)`).
+          Pass empty string to remove the calculation.
+        - `idnumber_overrides` lets you set/replace idnumbers on the items
+          referenced from the formula in a single round-trip (Moodle's UI does
+          this — every referenceable item is editable on the calc page).
+        """
+        url = f"{self.base_url}/grade/edit/tree/calculation.php?courseid={int(course_id)}&id={int(item_id)}"
+        resp = self._session.get(url)
+        if "/login/" in resp.url:
+            raise RuntimeError(f"Session expired fetching calculation form. {_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        form: Tag | None = None
+        for f in soup.find_all("form", method="post"):
+            if isinstance(f, Tag) and "/grade/edit/tree/calculation.php" in _attr(f, "action"):
+                form = f
+                break
+        if form is None:
+            raise RuntimeError(f"No calculation form found at {url}")
+
+        payload: dict[str, str] = {}
+        for inp in form.find_all(["input", "select", "textarea"]):
+            if not isinstance(inp, Tag):
+                continue
+            name = _attr(inp, "name")
+            if not name:
+                continue
+            tag_name = inp.name
+            if tag_name == "textarea":
+                payload[name] = inp.text or ""
+            elif tag_name == "select":
+                opt = inp.find("option", selected=True)
+                payload[name] = _attr(opt, "value") if isinstance(opt, Tag) else ""
+            else:
+                itype = (_attr(inp, "type") or "text").lower()
+                if itype in ("submit", "button", "image"):
+                    continue
+                if itype == "checkbox" and not inp.has_attr("checked"):
+                    payload.setdefault(name, "")
+                    continue
+                payload[name] = _attr(inp, "value")
+
+        payload["calculation"] = formula
+        if idnumber_overrides:
+            for ref_id, idnum in idnumber_overrides.items():
+                payload[f"idnumbers[{int(ref_id)}]"] = idnum
+        payload["submitbutton"] = "Save changes"
+
+        post_resp = self._post_form(url, payload, referer=url)
+        self._detect_grade_form_error(
+            post_resp,
+            expected_form_path="/grade/edit/tree/calculation.php",
+            label=f"calculation-{item_id}",
+        )
+
+    def get_grade_calculation(
+            self, course_id: CourseId, item_id: GradeItemId,
+    ) -> tuple[str, dict[GradeItemId, str]]:
+        """Return (formula, {ref_item_id: idnumber}) for a grade item's calculation page.
+
+        The formula is the contents of the `calculation` textarea (empty string
+        if the item has no calculation). The idnumber map shows the current
+        idnumber assigned to every grade item referenceable from this calc.
+        """
+        url = f"{self.base_url}/grade/edit/tree/calculation.php?courseid={int(course_id)}&id={int(item_id)}"
+        resp = self._session.get(url)
+        if "/login/" in resp.url:
+            raise RuntimeError(f"Session expired fetching calculation form. {_SESSION_EXPIRED}")
+        soup = BeautifulSoup(resp.text, "html.parser")
+        ta = soup.find("textarea", attrs={"name": "calculation"})
+        formula = (ta.text or "") if isinstance(ta, Tag) else ""
+        idnum: dict[GradeItemId, str] = {}
+        for inp in soup.find_all("input"):
+            if not isinstance(inp, Tag):
+                continue
+            name = _attr(inp, "name")
+            m = re.match(r"^idnumbers\[(\d+)\]$", name)
+            if m:
+                idnum[GradeItemId(int(m.group(1)))] = _attr(inp, "value")
+        return formula, idnum

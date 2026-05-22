@@ -212,12 +212,13 @@ def get_all_ungraded_submissions(
         course_ids: list[CourseId],
         course_map: CourseMap,
         status: AssignmentStatus = "all",
+        include_resubmitted: bool = False,
 ) -> list[UngradedResult]:
     """Return all submitted-but-ungraded entries across all given courses/assignments.
 
     Skips assignments with zero submissions to avoid unnecessary requests.
-    Each result: {course, assignment, assignment_status, due_date, user_id, fullname,
-                  email, grading_status, files}
+    When include_resubmitted=True, also include submissions where the student
+    uploaded a new attempt after a previous grade ("Graded - resubmitted").
     """
     from rich.console import Console
     from rich.progress import Progress, SpinnerColumn, TextColumn
@@ -253,7 +254,8 @@ def get_all_ungraded_submissions(
                 continue
 
             for sub in submissions:
-                if is_ungraded(sub):
+                resubmitted = is_resubmitted(sub)
+                if is_ungraded(sub) or (include_resubmitted and resubmitted):
                     filenames = ", ".join(f["filename"] for f in sub["files"]) if sub["files"] else "—"
                     results.append({
                         "course": course_short,
@@ -265,6 +267,7 @@ def get_all_ungraded_submissions(
                         "email": sub["email"],
                         "grading_status": sub.get("grading_status", ""),
                         "files": filenames,
+                        "resubmitted": resubmitted,
                     })
 
             progress.advance(task)

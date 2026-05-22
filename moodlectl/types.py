@@ -24,6 +24,12 @@ CourseId = NewType("CourseId", int)
 SectionId = NewType("SectionId", int)
 """Moodle section DB id — NOT the ordinal section number. Used in API calls."""
 
+GradeItemId = NewType("GradeItemId", int)
+"""Gradebook grade_item.id (the int after `ig` in eids like `ig7166`)."""
+
+GradeCategoryId = NewType("GradeCategoryId", int)
+"""Gradebook grade_category.id (the int after `cg` in eids like `cg1524`)."""
+
 # ---------------------------------------------------------------------------
 # Recursive JSON type — used only at the raw HTTP boundary in client/base.py
 # ---------------------------------------------------------------------------
@@ -237,6 +243,7 @@ class UngradedResult(TypedDict):
     email: str
     grading_status: str
     files: str  # comma-joined filenames for display
+    resubmitted: bool
 
 
 class DueSoon(TypedDict):
@@ -341,6 +348,83 @@ class SubmissionSummary(TypedDict):
     ungraded: int  # submitted but grading_status has no digits
     missing: int  # enrolled students with no submission on record
     total: int  # submitted + missing (enrolled student count)
+
+
+type AggregationKind = Literal[
+    "mean",                 # 0
+    "mean_of_grades",       # 1 (Weighted mean of grades — Moodle's label)
+    "median",               # 2
+    "min",                  # 4
+    "max",                  # 6
+    "mode",                 # 8
+    "weighted_mean",        # 10
+    "simple_weighted_mean", # 11
+    "sum",                  # 13 (Natural)
+]
+"""Friendly names for Moodle category aggregation strategies."""
+
+# Numeric ↔ friendly mapping (single source of truth for serialise/deserialise).
+AGGREGATION_BY_NAME: dict[AggregationKind, int] = {
+    "mean": 0,
+    "mean_of_grades": 1,
+    "median": 2,
+    "min": 4,
+    "max": 6,
+    "mode": 8,
+    "weighted_mean": 10,
+    "simple_weighted_mean": 11,
+    "sum": 13,
+}
+AGGREGATION_BY_CODE: dict[int, AggregationKind] = {v: k for k, v in AGGREGATION_BY_NAME.items()}
+
+type GradeItemKind = Literal["manual", "assign", "quiz", "mod", "category", "course", "calculated"]
+"""Item kind. `mod` is an activity-backed item we couldn't classify more specifically."""
+
+
+class GradeItem(TypedDict, total=False):
+    eid: str                  # e.g. "ig7166" — the read-only Moodle entity id
+    item_id: GradeItemId      # int form of the eid (7166)
+    parent_cat_id: GradeCategoryId | None
+    name: str
+    kind: GradeItemKind
+    cmid: int | None          # for activity-backed items (None for manual / category / course)
+    grademax: float
+    grademin: float
+    weight: float | None      # aggregationcoef when overridden
+    weight_override: bool
+    aggregationcoef2: float | None  # natural-weight extended coef
+    hidden: bool
+    locked: bool
+    idnumber: str
+    calculation: str          # "" if not calculated
+    module_visible: bool      # for activity-backed items: cm.visible (True=visible to students)
+
+
+class GradeCategory(TypedDict, total=False):
+    eid: str                  # e.g. "cg1524"
+    cat_id: GradeCategoryId
+    item_id: GradeItemId      # the category's own aggregation grade_item
+    parent_cat_id: GradeCategoryId | None
+    name: str
+    aggregation: AggregationKind
+    droplow: int
+    keephigh: int
+    aggregateonlygraded: bool
+    aggregateoutcomes: bool
+    grademax: float
+    weight: float | None
+    weight_override: bool
+    aggregationcoef2: float | None
+    hidden: bool
+    idnumber: str
+    calculation: str          # formula on the category's grade_item (rare; overrides aggregation)
+    items: list[GradeItem]
+    subcategories: list["GradeCategory"]
+
+
+class GradeTree(TypedDict):
+    course_id: CourseId
+    root: GradeCategory
 
 
 class AtRiskStudent(TypedDict):
@@ -455,3 +539,44 @@ class MoodleClientProtocol(Protocol):
     def delete_discussion(self, discussion_id: int) -> None: ...
 
     def update_discussion(self, discussion_id: int, subject: str, message: str) -> None: ...
+
+    # --- Gradebook (Phase 1: read-only) ---
+    def get_gradebook_tree(self, course_id: CourseId) -> GradeTree: ...
+
+    def get_grade_category_form(self, course_id: CourseId, cat_id: GradeCategoryId) -> dict[str, str]: ...
+
+    def get_grade_item_form(self, course_id: CourseId, item_id: GradeItemId) -> dict[str, str]: ...
+
+    def get_grade_calculation(self, course_id: CourseId, item_id: GradeItemId) -> tuple[str, dict[GradeItemId, str]]: ...
+
+    def save_grade_category(
+            self,
+            course_id: CourseId,
+            cat_id: GradeCategoryId,
+            changes: dict[str, str],
+            parent_cat_id: GradeCategoryId | None = None,
+    ) -> GradeCategoryId: ...
+
+    def save_grade_item(
+            self,
+            course_id: CourseId,
+            item_id: GradeItemId,
+            changes: dict[str, str],
+            parent_cat_id: GradeCategoryId | None = None,
+    ) -> GradeItemId: ...
+
+    def move_grade_item(
+            self,
+            course_id: CourseId,
+            item_eid: str,
+            target_eid: str,
+            first: bool = True,
+    ) -> None: ...
+
+    def save_grade_calculation(
+            self,
+            course_id: CourseId,
+            item_id: GradeItemId,
+            formula: str,
+            idnumber_overrides: dict[GradeItemId, str] | None = None,
+    ) -> None: ...
