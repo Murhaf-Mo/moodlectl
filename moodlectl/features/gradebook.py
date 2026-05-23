@@ -22,9 +22,7 @@ from moodlectl.types import (
     AGGREGATION_BY_NAME,
     CourseId,
     GradeCategory,
-    GradeCategoryId,
     GradeItem,
-    GradeItemId,
     GradeTree,
     MoodleClientProtocol,
 )

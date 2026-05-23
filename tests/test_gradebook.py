@@ -418,7 +418,7 @@ def test_push_resolves_pending_parent_tag_for_moves() -> None:
         def get_gradebook_tree(self, course_id):  # type: ignore[override]
             # Return a tree where the new cat lives under cg1
             tree = _build_tree()
-            from moodlectl.types import GradeCategory, GradeCategoryId, GradeItemId
+            from moodlectl.types import GradeCategory, GradeCategoryId, GradeItemId  # noqa: F401
             new_cat: GradeCategory = {
                 "eid": f"cg{self._new_cat_id}", "cat_id": GradeCategoryId(self._new_cat_id),
                 "item_id": GradeItemId(7000), "parent_cat_id": GradeCategoryId(1),
