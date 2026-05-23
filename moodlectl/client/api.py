@@ -2943,34 +2943,48 @@ class MoodleAPI(MoodleClientBase):
         return self._get_grade_form_fields(url)
 
     def _detect_grade_form_error(self, resp: Any, *, expected_form_path: str, label: str) -> None:
-        """Raise if a /grade/edit/tree/ form POST landed back on the form page (= validation failed).
+        """Raise if a /grade/edit/tree/ form POST has a visible error message.
 
-        A successful save redirects to `/grade/edit/tree/index.php`. Staying on
-        the form URL means Moodle rejected at least one field; the error text
-        is usually in `.invalid-feedback` or `.alert-danger`.
+        Some forms (e.g. category/item save) redirect away from the form on
+        success and stay on it on error. Others (e.g. the idnumbers sub-form
+        on calculation.php) always redirect back to the same page. So we
+        ONLY raise when an actual error indicator is present in the response
+        — staying on the URL alone is not enough evidence of failure.
         """
         if expected_form_path not in resp.url:
             return
-        import tempfile
         soup = BeautifulSoup(resp.text, "html.parser")
         msg = ""
         for tag in [
+            *soup.find_all(id=re.compile(r"^id_error_")),
             *soup.find_all(class_="invalid-feedback"),
             *soup.find_all(class_="alert-danger"),
             *soup.find_all(class_="error"),
-            *soup.find_all(id=re.compile(r"^id_error_")),
         ]:
+            # Some `.error` blocks render as empty wrappers (e.g.
+            # <span id="id_error_xxx"></span>) even on success — only count
+            # them when they contain actual text. `.invalid-feedback` blocks
+            # without `style="display: block;"` are also hidden by default.
+            if "invalid-feedback" in (tag.get("class") or []):
+                if "display: block" not in (tag.get("style") or ""):
+                    continue
             text = tag.get_text(" ", strip=True)
             if text:
                 msg = text
                 break
+        if not msg:
+            # No visible error → treat as success (the POST may legitimately
+            # have landed back on the same URL — common for sub-forms).
+            return
+
+        import tempfile
         tmp = tempfile.NamedTemporaryFile(
             delete=False, suffix=".html", prefix=f"moodlectl_gb_{label}_",
         )
         tmp.write(resp.text.encode("utf-8", errors="replace"))
         tmp.close()
         raise RuntimeError(
-            f"Moodle rejected the gradebook form ({label}): {msg or 'unknown error'}.\n"
+            f"Moodle rejected the gradebook form ({label}): {msg}.\n"
             f"Full response saved to: {tmp.name}"
         )
 
@@ -3007,24 +3021,30 @@ class MoodleAPI(MoodleClientBase):
         if cat_id != 0:
             return cat_id
 
-        # Resolve the new category id from the post-save tree.
+        # Resolve the new category id from the post-save tree. Moodle
+        # sometimes lands the new cat at root (regardless of the `parent`
+        # URL param) — so we search in two passes:
+        #   1) strict: matching name AND parent_cat_id
+        #   2) loose:  highest cat_id with matching name (the most recent
+        #              create wins). The caller is expected to move it into
+        #              place via `move_grade_item` after we return.
         tree = self.get_gradebook_tree(course_id)
         wanted_name = form.get("fullname", "")
-        new_id: GradeCategoryId | None = None
+        strict_id: GradeCategoryId | None = None
+        loose_id: GradeCategoryId | None = None
 
         def _walk(cat: GradeCategory) -> None:
-            nonlocal new_id
-            if new_id is not None:
-                return
+            nonlocal strict_id, loose_id
             for sub in cat["subcategories"]:
-                if sub["name"] == wanted_name and (
-                        parent_cat_id is None or sub.get("parent_cat_id") == parent_cat_id
-                ):
-                    new_id = sub["cat_id"]
-                    return
+                if sub["name"] == wanted_name:
+                    if (parent_cat_id is None or sub.get("parent_cat_id") == parent_cat_id) and strict_id is None:
+                        strict_id = sub["cat_id"]
+                    if loose_id is None or int(sub["cat_id"]) > int(loose_id):
+                        loose_id = sub["cat_id"]
                 _walk(sub)
 
         _walk(tree["root"])
+        new_id = strict_id or loose_id
         if new_id is None:
             raise RuntimeError(
                 f"Created category {wanted_name!r} but couldn't locate it in the refreshed tree."
@@ -3133,59 +3153,94 @@ class MoodleAPI(MoodleClientBase):
     ) -> None:
         """Save a calculation formula via POST to `/grade/edit/tree/calculation.php`.
 
-        - `formula` is the textarea contents (e.g. `=max([[mid]], [[fin]]/30*20)`).
-          Pass empty string to remove the calculation.
-        - `idnumber_overrides` lets you set/replace idnumbers on the items
-          referenced from the formula in a single round-trip (Moodle's UI does
-          this — every referenceable item is editable on the calc page).
+        The Mountain Orange variant splits this page into TWO forms with the
+        same action URL:
+          - `section=calculation` (textarea + Save changes button) — the formula
+          - `section=idnumbers`   (per-item inputs + Add ID numbers button) —
+            assigns idnumbers to items that don't have one yet
+        We POST each form separately when its corresponding inputs are provided.
+
+        - `formula` is the textarea contents. Pass `""` to clear it.
+        - `idnumber_overrides` sets/replaces idnumbers on the referenceable items.
         """
         url = f"{self.base_url}/grade/edit/tree/calculation.php?courseid={int(course_id)}&id={int(item_id)}"
         resp = self._session.get(url)
         if "/login/" in resp.url:
             raise RuntimeError(f"Session expired fetching calculation form. {_SESSION_EXPIRED}")
         soup = BeautifulSoup(resp.text, "html.parser")
-        form: Tag | None = None
+
+        # Collect all <form>s whose action targets calculation.php — typically
+        # two on this Moodle build: section=calculation and section=idnumbers.
+        candidate_forms: list[Tag] = []
         for f in soup.find_all("form", method="post"):
             if isinstance(f, Tag) and "/grade/edit/tree/calculation.php" in _attr(f, "action"):
-                form = f
-                break
-        if form is None:
+                candidate_forms.append(f)
+        if not candidate_forms:
             raise RuntimeError(f"No calculation form found at {url}")
 
-        payload: dict[str, str] = {}
-        for inp in form.find_all(["input", "select", "textarea"]):
-            if not isinstance(inp, Tag):
-                continue
-            name = _attr(inp, "name")
-            if not name:
-                continue
-            tag_name = inp.name
-            if tag_name == "textarea":
-                payload[name] = inp.text or ""
-            elif tag_name == "select":
-                opt = inp.find("option", selected=True)
-                payload[name] = _attr(opt, "value") if isinstance(opt, Tag) else ""
+        # Locate each by its hidden `section` field.
+        form_calc: Tag | None = None
+        form_idnum: Tag | None = None
+        for f in candidate_forms:
+            section_input = f.find("input", attrs={"name": "section"})
+            section_val = _attr(section_input, "value") if isinstance(section_input, Tag) else ""
+            if section_val == "calculation":
+                form_calc = f
+            elif section_val == "idnumbers":
+                form_idnum = f
             else:
-                itype = (_attr(inp, "type") or "text").lower()
-                if itype in ("submit", "button", "image"):
-                    continue
-                if itype == "checkbox" and not inp.has_attr("checked"):
-                    payload.setdefault(name, "")
-                    continue
-                payload[name] = _attr(inp, "value")
+                # Older Moodles ship a single form — treat as calculation.
+                form_calc = form_calc or f
 
-        payload["calculation"] = formula
-        if idnumber_overrides:
+        def _scrape(form: Tag) -> dict[str, str]:
+            out: dict[str, str] = {}
+            for inp in form.find_all(["input", "select", "textarea"]):
+                if not isinstance(inp, Tag):
+                    continue
+                name = _attr(inp, "name")
+                if not name:
+                    continue
+                tag_name = inp.name
+                if tag_name == "textarea":
+                    out[name] = inp.text or ""
+                elif tag_name == "select":
+                    opt = inp.find("option", selected=True)
+                    out[name] = _attr(opt, "value") if isinstance(opt, Tag) else ""
+                else:
+                    itype = (_attr(inp, "type") or "text").lower()
+                    if itype in ("submit", "button", "image"):
+                        continue
+                    if itype == "checkbox" and not inp.has_attr("checked"):
+                        out.setdefault(name, "")
+                        continue
+                    out[name] = _attr(inp, "value")
+            return out
+
+        # Step 1: save the formula (always — even with formula="" to clear).
+        if form_calc is not None:
+            payload = _scrape(form_calc)
+            payload["calculation"] = formula
+            payload["submitbutton"] = "Save changes"
+            post_resp = self._post_form(url, payload, referer=url)
+            self._detect_grade_form_error(
+                post_resp,
+                expected_form_path="/grade/edit/tree/calculation.php",
+                label=f"calculation-{item_id}",
+            )
+
+        # Step 2: if idnumber overrides were requested, submit the idnumbers
+        # form (separate POST — different submit button).
+        if idnumber_overrides and form_idnum is not None:
+            payload = _scrape(form_idnum)
             for ref_id, idnum in idnumber_overrides.items():
                 payload[f"idnumbers[{int(ref_id)}]"] = idnum
-        payload["submitbutton"] = "Save changes"
-
-        post_resp = self._post_form(url, payload, referer=url)
-        self._detect_grade_form_error(
-            post_resp,
-            expected_form_path="/grade/edit/tree/calculation.php",
-            label=f"calculation-{item_id}",
-        )
+            payload["addidnumbers"] = "Add ID numbers"
+            post_resp = self._post_form(url, payload, referer=url)
+            self._detect_grade_form_error(
+                post_resp,
+                expected_form_path="/grade/edit/tree/calculation.php",
+                label=f"calculation-idnumbers-{item_id}",
+            )
 
     def get_grade_calculation(
             self, course_id: CourseId, item_id: GradeItemId,

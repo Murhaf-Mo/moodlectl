@@ -935,7 +935,9 @@ def _apply_one(
     if ch.kind == UPDATE_ITEM:
         if ch.via_calc_form:
             # idnumber update on activity-backed item — route through the
-            # course-total calc form's idnumbers[] override.
+            # course-total calc page's idnumbers[] form (a separate POST in
+            # this Mountain Orange build). The formula POST round-trips the
+            # current formula so it stays unchanged.
             idnumber = ch.payload.get("idnumber", "")
             if ch.course_total_item_id == 0:
                 raise RuntimeError("via_calc_form requires course_total_item_id to be set")

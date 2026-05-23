@@ -4,7 +4,7 @@ Automate your Moodle LMS from the command line.
 
 ![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
 
-Courses, participants, assignments, grading, analytics, bulk content edits — all scriptable. Defaults to the public
+Courses, participants, assignments, grading, gradebook setup, analytics, bulk content edits — all scriptable. Defaults to the public
 sandbox at [school.moodledemo.net](https://school.moodledemo.net) so you can try every command before pointing it at
 your own instance.
 
@@ -299,6 +299,115 @@ Works both in `content push` (alongside edits/reorders) and standalone via `cont
 a single mapping or a list; top-level `section: <n>` is required when the file is consumed by `content create`, inferred
 from position when consumed by `content push`.
 
+### gradebook
+
+Declarative pull/push for the gradebook setup — categories, grade items,
+calculations, idnumbers, weights, drop-lowest rules. Same workflow as
+`content pull/push`: snapshot to YAML, edit in any text editor, push back.
+
+```bash
+moodlectl gradebook show   --course 51                   # tree view (cats + items)
+moodlectl gradebook pull   --course 51 -o gradebook.yaml # dump full setup
+moodlectl gradebook diff   gradebook.yaml                # preview changes
+moodlectl gradebook push   gradebook.yaml --dry-run      # same preview
+moodlectl gradebook push   gradebook.yaml                # prompt to confirm
+moodlectl gradebook push   gradebook.yaml --yes          # apply without prompt
+moodlectl gradebook push   gradebook.yaml --continue-on-error
+```
+
+**What the YAML exposes:**
+
+| Editable on push | Read-only |
+|---|---|
+| category: `name`, `aggregation`, `droplow`, `keephigh`, `grademax`, `weight`, `weight_override`, `hidden`, `idnumber`, `aggregateonlygraded` | `course_id`, `eid` (`cgN` / `igN`), `item_id`, `cmid`, `kind` |
+| item: `name` (manual only), `grademax` (manual only), `weight`, `weight_override`, `hidden`, `idnumber`, `calculation`, `module_visible` | |
+| structure: nest order; manual + calculated items can be added/removed |  |
+
+**Aggregation names** (friendly → Moodle internal code):
+`sum` (Natural), `mean`, `mean_of_grades`, `median`, `min`, `max`, `mode`,
+`weighted_mean`, `simple_weighted_mean`. Some sites disable `weighted_mean` —
+push fails fast with a clear error in that case.
+
+**Change kinds emitted by `diff`:**
+
+| Kind | Triggered by | How push applies it |
+|---|---|---|
+| `CREATE_CATEGORY` | new category in YAML (no eid) | `category.php` POST (id=0) |
+| `UPDATE_CATEGORY` | matched eid with changed fields | `category.php` POST |
+| `CREATE_ITEM` | new manual/calculated item (no eid) | `item.php` POST (id=0); attaches calculation on the fly |
+| `UPDATE_ITEM` | matched item with changed fields | `item.php` POST. **idnumber changes on activity-backed items** auto-route through the course-total calculation form (item.php silently ignores them otherwise). |
+| `MOVE_ITEM` | item / sub-category re-parented in YAML | `index.php?action=move` |
+| `SET_CALCULATION` | category or item with changed `calculation:` field | `calculation.php` POST |
+| `SET_MODULE_VISIBLE` | activity item's `module_visible` changed | `set_module_visible` (course-module edit) |
+| `DELETE_ITEM` | live activity item missing from YAML | `delete_module(cmid)` — **destroys student submissions**. Manual items missing from YAML are skipped (Moodle has no web delete for them — manual UI step) |
+
+**Two-pass push** — if your YAML creates a sub-category and moves items
+into it in the same push, you don't need two separate runs. Each new
+category gets a stable internal tag; child `MOVE_ITEM`s reference the tag;
+push resolves it to the real `cat_id` after the create.
+
+**Idempotent** — re-running `push` on the same YAML against the same live
+state produces 0 changes (round-trip safe). Use this as a sanity check
+after every push.
+
+**Known limits (Moodle JS-only):**
+
+- Category deletion — Moodle's UI uses a JS modal with no plain URL.
+  Remove the category yourself in the Moodle web UI.
+- Manual grade-item deletion — same constraint. Activity-backed items
+  delete fine via push.
+
+**Example: restructure a course gradebook in one push**
+
+```yaml
+# gradebook.yaml — best 3 of 5 quizzes scaled to /20, drop-lowest assignment,
+# manual Bonus column, midterm-replacement rule on the course total.
+course_id: 51
+root:
+  eid: cg9001
+  name: "My Course"
+  aggregation: sum
+  grademax: 100.0
+  calculation: =[[[at]]] + [[[qt]]] + [[[fe]]] + MAX([[[me]]],([[[fe]]]*2/3)) + [[bonus]]
+  children:
+    - category:
+        name: Assignments
+        aggregation: simple_weighted_mean
+        droplow: 1
+        grademax: 30.0
+        idnumber: "[at]"
+        children:
+          - item: {eid: ig101, kind: assign, cmid: 200, name: Asg 1, grademax: 10}
+          - item: {eid: ig102, kind: assign, cmid: 201, name: Asg 2, grademax: 10}
+          - item: {eid: ig103, kind: assign, cmid: 202, name: Asg 3, grademax: 10}
+          - item: {eid: ig104, kind: assign, cmid: 203, name: Asg 4, grademax: 10}
+    - category:
+        name: Quizzes
+        aggregation: simple_weighted_mean
+        droplow: 2
+        grademax: 20.0
+        idnumber: "[qt]"
+        children:
+          - item: {eid: ig201, kind: quiz, cmid: 300, name: Q1, grademax: 5}
+          # ...Q2..Q5
+    - category:
+        name: Midterm
+        aggregation: sum
+        grademax: 20.0
+        idnumber: "[me]"
+        children:
+          - item: {eid: ig301, kind: quiz, cmid: 400, name: Midterm, grademax: 20}
+    - item: {eid: ig401, kind: quiz, cmid: 500, name: Final Exam, grademax: 30, idnumber: "[fe]"}
+    - item: {name: Bonus, kind: manual, grademax: 7, idnumber: bonus}   # new manual item
+```
+
+```bash
+moodlectl gradebook diff gradebook.yaml      # preview the change list
+moodlectl gradebook push gradebook.yaml --yes
+moodlectl gradebook pull --course 51 -o /tmp/check.yaml
+moodlectl gradebook diff /tmp/check.yaml     # should report 0 changes (round-trip safe)
+```
+
 ### announcements
 
 Post, view, edit, and delete discussions in a course forum. Posts in the default
@@ -506,6 +615,17 @@ moodlectl content pull --course 51 -o course.yaml
 # edit: rename, hide/unhide, reorder, change due dates, grade limits, …
 moodlectl content push course.yaml --dry-run
 moodlectl content push course.yaml --yes
+```
+
+**Reshape a course gradebook:**
+
+```bash
+moodlectl gradebook pull --course 51 -o gradebook.yaml
+# edit: add categories, set droplow / weights / idnumbers, write calculation
+moodlectl gradebook diff gradebook.yaml         # preview
+moodlectl gradebook push gradebook.yaml --yes
+moodlectl gradebook pull --course 51 -o /tmp/check.yaml
+moodlectl gradebook diff /tmp/check.yaml        # must be (no changes) — round-trip safe
 ```
 
 **Analytics report:**
