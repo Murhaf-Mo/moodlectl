@@ -17,6 +17,11 @@ def list_courses(client: MoodleClientProtocol) -> list[Course]:
     return client.get_courses()
 
 
+def set_course_image(client: MoodleClientProtocol, course_id: CourseId, file_path: str) -> None:
+    """Replace the overview image for one explicitly selected course."""
+    client.set_course_image(course_id, file_path)
+
+
 def get_participants(
         client: MoodleClientProtocol,
         course_id: CourseId,

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path.cwd() / ".env")
 
 _MISSING_HINT = """
 Missing Moodle credentials. Add them to your .env file:
@@ -23,6 +24,8 @@ class Config:
     moodle_session: str
     moodle_sesskey: str
     anthropic_api_key: str
+    browser_cookies: str = ""
+    browser_user_agent: str = ""
 
     @classmethod
     def load(cls) -> "Config":
@@ -38,4 +41,6 @@ class Config:
             moodle_session=session,
             moodle_sesskey=sesskey,
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),
+            browser_cookies=os.environ.get("MOODLE_BROWSER_COOKIES", ""),
+            browser_user_agent=os.environ.get("MOODLE_BROWSER_USER_AGENT", ""),
         )

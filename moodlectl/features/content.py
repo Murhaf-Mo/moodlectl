@@ -5,6 +5,13 @@ from typing import Any
 from moodlectl.types import Cmid, CourseId, CourseModule, CourseSection, MoodleClientProtocol
 
 
+def replace_resource_file(client: MoodleClientProtocol, course_id: CourseId, cmid: Cmid, file_path: str) -> None:
+    module = find_module(client, course_id, cmid)
+    if module is None or module["modname"] != "resource":
+        raise ValueError("The selected course does not contain this resource module.")
+    client.replace_resource_file(cmid, file_path)
+
+
 def get_sections(
         client: MoodleClientProtocol,
         course_id: CourseId,

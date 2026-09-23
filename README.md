@@ -1,5 +1,14 @@
 # moodlectl
 
+### Replace a resource file
+
+`moodlectl content replace-file --course 905 --cmid 27059 --file ./syllabus.docx`
+
+Replaces the file in an existing single-file resource while retaining its module
+URL, title, visibility, and other settings. The command checks that the resource
+belongs to the selected course, refuses resources with multiple files or folders,
+and verifies the saved filename and bytes. A failed upload does not save the draft.
+
 Automate your Moodle LMS from the command line.
 
 ![CI](https://github.com/Murhaf-Mo/moodlectl/actions/workflows/ci.yml/badge.svg)
@@ -39,6 +48,13 @@ moodlectl auth check                                   # verify session, show ex
 ```
 
 `auth login` skips the browser when the existing session is still valid.
+
+Configuration is loaded from `.env` in the current working directory. Browser
+login waits for the authenticated page after SSO and saves the site's browser
+cookies and user agent alongside the Moodle session. Run subsequent commands
+from that same directory. For a source installation, `python -m moodlectl`
+runs the installed Python package even when an older standalone executable is
+also on PATH.
 
 **Manual fallback** — create `.env` in your working directory:
 
@@ -112,9 +128,14 @@ moodlectl courses set --course 51 --field fullname --value "New Name"
 moodlectl courses set --course 51 --field visible --value 1
 moodlectl courses set --course 51 --field end_date --value "2027-01-15 00:00"
 moodlectl courses set --course 51 --field tags --value "tag1,tag2"
+moodlectl courses set-image --course 51 --file thumbnail.jpg
 ```
 
 `courses settings` lists every field accepted by `courses set` (fullname, shortname, summary, visible, start_date, end_date, enable_completion, tags, …). Dates use `"YYYY-MM-DD HH:MM"`.
+
+`courses set-image` replaces the course overview images with one local JPEG, PNG,
+GIF, or WebP. It preserves the other course settings, uploads through Moodle's
+draft file manager, and verifies the saved filename and downloaded bytes.
 
 ### grades
 

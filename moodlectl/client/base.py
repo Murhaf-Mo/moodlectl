@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Self
+from urllib.parse import urlparse
 
 import requests
 
@@ -15,7 +16,9 @@ class MoodleClientBase:
         self.base_url = base_url
         self.sesskey = sesskey
         self._session = requests.Session()
-        self._session.cookies.set("MoodleSession", session_cookie)  # type: ignore[no-untyped-call]
+        self._session.cookies.set(
+            "MoodleSession", session_cookie, domain=urlparse(base_url).hostname or "", path="/"
+        )
         self._session.headers.update({
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -29,7 +32,21 @@ class MoodleClientBase:
 
     @classmethod
     def from_config(cls, config: Config) -> Self:
-        return cls(config.base_url, config.moodle_session, config.moodle_sesskey)
+        client = cls(config.base_url, config.moodle_session, config.moodle_sesskey)
+        if config.browser_user_agent:
+            client._session.headers["User-Agent"] = config.browser_user_agent
+        if config.browser_cookies:
+            host = urlparse(config.base_url).hostname or ""
+            for cookie in json.loads(config.browser_cookies):
+                domain = cookie.get("domain", "").lstrip(".")
+                # Never transfer cookies from an unrelated identity provider.
+                if (domain and (host == domain or host.endswith("." + domain))
+                        and cookie["name"] != "MoodleSession"):
+                    client._session.cookies.set(
+                        cookie["name"], cookie["value"], domain=cookie["domain"],
+                        path=cookie.get("path", "/"), secure=cookie.get("secure", False),
+                    )
+        return client
 
     def refresh_sesskey(self) -> None:
         """Re-scrape sesskey from the dashboard. Call when you get sesskey errors."""

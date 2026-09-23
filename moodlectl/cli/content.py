@@ -42,11 +42,30 @@ def _make_progress() -> Progress:
 _COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`).")
 _CMID_OPT = typer.Option(..., "--cmid", help="Course-module ID (from `content list`).")
 _SECTION_OPT = typer.Option(..., "--section", "-s", help="Section number (0-indexed, from `content list`).")
+_REPLACEMENT_FILE_OPT = typer.Option(..., "--file", "-f", exists=True, dir_okay=False, readable=True)
+_FOLDER_OUT_OPT = typer.Option(..., "--out", "-o")
 
 
 # ---------------------------------------------------------------------------
 # content list
 # ---------------------------------------------------------------------------
+
+@app.command("replace-file")
+def replace_file(
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
+        file: Path = _REPLACEMENT_FILE_OPT,
+) -> None:
+    """Replace a single-file resource, preserving its URL and other settings."""
+    import requests
+    client = MoodleClient.from_config(Config.load())
+    try:
+        content_feature.replace_resource_file(client, CourseId(course), Cmid(cmid), str(file))
+    except (RuntimeError, ValueError, OSError, requests.RequestException) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Resource {cmid} file updated and verified: {file.name}[/green]")
+
 
 @app.command("list")
 def list_content(
@@ -208,6 +227,26 @@ def download_resource(
             console.print(f"[red]cmid={c}: {exc}[/red]")
             raise typer.Exit(1)
         console.print(f"[green]Saved[/green] cmid={c} → {path}")
+
+
+@app.command("download-folder")
+def download_folder(
+        course: int = _COURSE_OPT,
+        cmid: int = _CMID_OPT,
+        out: Path = _FOLDER_OUT_OPT,
+) -> None:
+    """Download all attachments from a folder belonging to the given course."""
+    import requests
+    client = MoodleClient.from_config(Config.load())
+    try:
+        module = content_feature.find_module(client, CourseId(course), Cmid(cmid))
+        if module is None or module['modname'] != 'folder':
+            raise ValueError('The selected module is not a folder')
+        for path in client.download_folder(Cmid(cmid), out):
+            console.print(f"[green]Saved[/green] {path}")
+    except (RuntimeError, ValueError, OSError, requests.RequestException) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
 
 
 # ---------------------------------------------------------------------------

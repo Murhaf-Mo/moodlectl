@@ -602,15 +602,12 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Courses ───────────────────────────────────────────────────────────────
 
-    def get_course_form(self, course_id: CourseId) -> dict[str, str]:
+    def get_course_form(self, course_id: CourseId, soup: BeautifulSoup | None = None) -> dict[str, str]:
         """Scrape the course/edit.php form and return all field values."""
-        resp = self._session.get(
-            f"{self.base_url}/course/edit.php",
-            params={"id": int(course_id)},
-        )
-        if "login" in resp.url:
-            raise RuntimeError(f"Session expired while loading course settings.\n{_SESSION_EXPIRED}")
-        soup = BeautifulSoup(resp.text, "html.parser")
+        if soup is None:
+            soup = self._get_soup(
+                f"{self.base_url}/course/edit.php", {"id": int(course_id)}, "course settings"
+            )
         form = max(
             soup.find_all("form"),
             key=lambda f: len(f.find_all(["input", "select", "textarea"])),
@@ -652,6 +649,68 @@ class MoodleAPI(MoodleClientBase):
                 data[name] = _attr(el, "value")
         data["saveanddisplay"] = "Save and display"
         return data
+
+    def set_course_image(self, course_id: CourseId, file_path: str) -> None:
+        """Replace course overview files, then verify the saved image byte-for-byte.
+
+        Work in the edit form's draft area; live files change only on form save.
+        The same form is submitted so unrelated settings and editor drafts survive.
+        """
+        from pathlib import Path
+        from urllib.parse import urlparse
+
+        path = Path(file_path)
+        if not path.is_file():
+            raise ValueError(f"Image does not exist: {path}")
+        if path.suffix.lower() not in {".jpg", ".jpeg", ".png", ".gif", ".webp"}:
+            raise ValueError("Choose a JPEG, PNG, GIF, or WebP image.")
+        soup = self._get_soup(
+            f"{self.base_url}/course/edit.php", {"id": int(course_id)}, "course image"
+        )
+        form = self.get_course_form(course_id, soup)
+        image_field = "overviewfiles_filemanager" if "overviewfiles_filemanager" in form else "overviewfiles"
+        itemid = form.get(image_field, "")
+        if not itemid.isdigit() or int(itemid) <= 0:
+            raise RuntimeError("Course edit form has no overview image file manager.")
+
+        def draft(action: str, draft_id: str, **fields: str) -> Any:
+            response = self._post_form(
+                f"{self.base_url}/repository/draftfiles_ajax.php",
+                {"action": action, "itemid": draft_id, "sesskey": self.sesskey,
+                 "filepath": "/", **fields},
+            )
+            response.raise_for_status()
+            try:
+                result = response.json()
+            except ValueError:
+                raise RuntimeError("Moodle returned a non-JSON draft-file response.") from None
+            if not isinstance(result, dict) or result.get("error"):
+                raise RuntimeError(f"Draft-file {action} failed.")
+            return result
+
+        listing = draft("list", itemid)
+        for entry in listing.get("list", []):
+            filename = entry.get("filename") or entry.get("fullname")
+            if not filename or entry.get("type") == "folder":
+                raise RuntimeError("Unexpected folder in course overview files; no course changes saved.")
+            draft("delete", itemid, filename=filename, filepath=entry.get("filepath", "/"))
+        self._upload_to_draft(soup, itemid, str(path))
+        response = self._post_form(f"{self.base_url}/course/edit.php", form)
+        response.raise_for_status()
+        if "/login/" in response.url or "/edit.php" in response.url:
+            raise RuntimeError("Moodle did not accept the course image settings; check your session and form permissions.")
+
+        saved = self.get_course_form(course_id)
+        files = draft("list", saved[image_field]).get("list", [])
+        if len(files) != 1 or (files[0].get("filename") or files[0].get("fullname")) != path.name:
+            raise RuntimeError("Course was saved, but the image filename could not be verified.")
+        url = files[0].get("url", "")
+        if not url or urlparse(url).netloc != urlparse(self.base_url).netloc:
+            raise RuntimeError("Course was saved, but Moodle did not return a local verification URL.")
+        downloaded = self._session.get(url, timeout=30)
+        downloaded.raise_for_status()
+        if downloaded.content != path.read_bytes():
+            raise RuntimeError("Course was saved, but image contents could not be verified.")
 
     def update_course(self, course_id: CourseId, changes: dict[str, str]) -> None:
         """Apply changes to course settings via course/edit.php."""
@@ -1178,7 +1237,7 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Question bank: lookup + quiz wiring ───────────────────────────────────
 
-    def list_question_categories(self, course_id: CourseId) -> list[dict[str, Any]]:
+    def list_question_categories(self, course_id: CourseId, cmid: Cmid | None = None) -> list[dict[str, Any]]:
         """Return every question category visible from the course, with counts.
 
         Each entry: {"id", "context_id", "name", "count", "depth"}.
@@ -1186,7 +1245,7 @@ class MoodleAPI(MoodleClientBase):
         """
         resp = self._session.get(
             f"{self.base_url}/question/bank/managecategories/category.php",
-            params={"courseid": int(course_id)},
+            params={"cmid": int(cmid)} if cmid is not None else {"courseid": int(course_id)},
         )
         resp.raise_for_status()
         if "/login/index.php" in resp.url:
@@ -1287,7 +1346,7 @@ class MoodleAPI(MoodleClientBase):
             out.append(entry)
         return out
 
-    def find_question_category(self, course_id: CourseId, name: str) -> tuple[int, int]:
+    def find_question_category(self, course_id: CourseId, name: str, cmid: Cmid | None = None) -> tuple[int, int]:
         """Return (categoryid, contextid) for the question category with the given name.
 
         Scrapes /question/bank/managecategories/category.php?courseid=X.
@@ -1297,7 +1356,7 @@ class MoodleAPI(MoodleClientBase):
         """
         resp = self._session.get(
             f"{self.base_url}/question/bank/managecategories/category.php",
-            params={"courseid": int(course_id)},
+            params={"cmid": int(cmid)} if cmid is not None else {"courseid": int(course_id)},
         )
         resp.raise_for_status()
         if "/login/index.php" in resp.url:
@@ -1626,7 +1685,7 @@ class MoodleAPI(MoodleClientBase):
 
     # ── Question bank import ──────────────────────────────────────────────────
 
-    def import_question_bank(self, course_id: CourseId, file_path: object) -> dict[str, Any]:
+    def import_question_bank(self, course_id: CourseId, file_path: object, cmid: Cmid | None = None) -> dict[str, Any]:
         """Import a Moodle XML question bank file into a course.
 
         Scrapes the import form for sesskey + draft itemid, uploads the file
@@ -1644,7 +1703,8 @@ class MoodleAPI(MoodleClientBase):
             raise FileNotFoundError(f"File not found: {path}")
 
         form_url = f"{self.base_url}/question/bank/importquestions/import.php"
-        resp = self._session.get(form_url, params={"courseid": int(course_id)})
+        route_params = {"cmid": int(cmid)} if cmid is not None else {"courseid": int(course_id)}
+        resp = self._session.get(form_url, params=route_params)
         resp.raise_for_status()
         if "/login/index.php" in resp.url:
             raise RuntimeError("Session expired. Run `moodlectl auth login`.")
@@ -1702,7 +1762,7 @@ class MoodleAPI(MoodleClientBase):
         # The shared session sets Content-Type: application/json by default for
         # AJAX calls — override it so MForm sees the URL-encoded body.
         post_resp = self._session.post(
-            form_url, params={"courseid": int(course_id)},
+            form_url, params=route_params,
             data=data, allow_redirects=True,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
@@ -1742,6 +1802,41 @@ class MoodleAPI(MoodleClientBase):
             "response_url": post_resp.url,
             "response_html": result_html,
         }
+
+    def download_folder(self, cmid: Cmid, dest_dir: object) -> list[str]:
+        """Download folder attachments, retaining safe relative subdirectories."""
+        from pathlib import Path
+        from urllib.parse import unquote, urljoin, urlsplit
+
+        page_url = f"{self.base_url}/mod/folder/view.php?id={int(cmid)}"
+        soup = self._get_soup(page_url)
+        root = Path(str(dest_dir)).resolve()
+        pending = {}
+        for anchor in soup.select('a[href]'):
+            url = urljoin(page_url, str(anchor['href']))
+            parsed = urlsplit(url)
+            if parsed.netloc != urlsplit(self.base_url).netloc:
+                continue
+            marker = '/mod_folder/content/'
+            if '/pluginfile.php/' not in parsed.path or marker not in parsed.path:
+                continue
+            tail = unquote(parsed.path.split(marker, 1)[1])
+            relative = tail.split('/', 1)[1] if '/' in tail else ''
+            parts = relative.replace('\\', '/').split('/')
+            if not relative or any(p in ('', '.', '..') or ':' in p for p in parts):
+                raise ValueError('Unsafe folder attachment path')
+            dest = root.joinpath(*parts).resolve()
+            if not dest.is_relative_to(root):
+                raise ValueError('Folder attachment escapes destination')
+            canonical = parsed._replace(query='', fragment='').geturl()
+            if dest in pending and pending[dest] != canonical:
+                raise ValueError('Conflicting folder attachment paths')
+            pending[dest] = canonical
+        if not pending:
+            raise RuntimeError(f'No downloadable folder attachments found for cmid={cmid}')
+        for dest, url in pending.items():
+            self.download_file(url, dest)
+        return [str(path) for path in pending]
 
     def download_resource(self, cmid: Cmid, dest_dir: object) -> object:
         """Download the file backing a `resource` module to dest_dir.
@@ -2493,7 +2588,7 @@ class MoodleAPI(MoodleClientBase):
         s = requests.Session()
         for ck in self._session.cookies:
             if ck.value is not None:
-                s.cookies.set(ck.name, ck.value)
+                s.cookies.set(ck.name, ck.value, domain=ck.domain, path=ck.path)
         s.headers.update({
             "User-Agent": self._session.headers["User-Agent"],
             "Referer": f"{self.base_url}/course/modedit.php",
@@ -2522,6 +2617,63 @@ class MoodleAPI(MoodleClientBase):
             raise RuntimeError(f"Draft upload returned non-JSON: {resp.text[:200]}")
         if isinstance(result, dict) and result.get("error"):
             raise RuntimeError(f"Draft upload rejected: {result['error']}")
+
+    def replace_resource_file(self, cmid: Cmid, file_path: str) -> None:
+        """Replace one resource file in a draft, preserve settings and verify bytes."""
+        from pathlib import Path
+        from urllib.parse import urlparse
+
+        path = Path(file_path)
+        if not path.is_file():
+            raise ValueError(f"File does not exist: {path}")
+        url = f"{self.base_url}/course/modedit.php"
+        soup = self._get_soup(url, {"update": int(cmid), "return": 0}, "resource file")
+        form = _parse_modedit_form(soup, f"resource {cmid}")
+        if form.get("modulename") != "resource":
+            raise ValueError("File replacement requires a resource module.")
+        itemid = form.get("files", "")
+        if not itemid.isdigit() or int(itemid) <= 0:
+            raise RuntimeError("Resource has no file manager draft area.")
+
+        def draft(action: str, draft_id: str, **fields: str) -> Any:
+            response = self._post_form(
+                f"{self.base_url}/repository/draftfiles_ajax.php",
+                {"action": action, "itemid": draft_id, "sesskey": self.sesskey,
+                 "filepath": "/", **fields},
+            )
+            response.raise_for_status()
+            try:
+                result = response.json()
+            except ValueError:
+                raise RuntimeError("Moodle returned a non-JSON draft-file response.") from None
+            if not isinstance(result, dict) or result.get("error"):
+                raise RuntimeError(f"Draft-file {action} failed.")
+            return result
+
+        files = draft("list", itemid).get("list", [])
+        if len(files) != 1 or files[0].get("type") == "folder":
+            raise ValueError("Replacement requires exactly one existing file and no folders.")
+        old_name = files[0].get("filename") or files[0].get("fullname")
+        if not old_name:
+            raise RuntimeError("Cannot identify the existing resource file.")
+        draft("delete", itemid, filename=old_name, filepath=files[0].get("filepath", "/"))
+        self._upload_to_draft(soup, itemid, str(path))
+        form["submitbutton"] = "Save and return to course"
+        response = self._post_form(url, form, referer=url)
+        response.raise_for_status()
+        if "/login/" in response.url or "/modedit.php" in response.url:
+            raise RuntimeError("Moodle did not accept the resource changes.")
+        saved = self.get_module_form(cmid)
+        files = draft("list", saved["files"]).get("list", [])
+        if len(files) != 1 or (files[0].get("filename") or files[0].get("fullname")) != path.name:
+            raise RuntimeError("Resource saved, but replacement filename could not be verified.")
+        verification_url = files[0].get("url", "")
+        if not verification_url or urlparse(verification_url).netloc != urlparse(self.base_url).netloc:
+            raise RuntimeError("Resource saved, but no local verification URL was returned.")
+        downloaded = self._session.get(verification_url, timeout=30)
+        downloaded.raise_for_status()
+        if downloaded.content != path.read_bytes():
+            raise RuntimeError("Resource saved, but replacement contents could not be verified.")
 
     def get_module_form(self, cmid: Cmid) -> dict[str, str]:
         """Scrape the modedit.php edit form for a module and return all field values.

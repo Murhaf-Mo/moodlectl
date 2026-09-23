@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
@@ -31,16 +32,14 @@ def _check_session_valid() -> tuple[bool, int]:
         cfg = Config.load()
         # Prefer a lightweight GET check over an AJAX call so this works on any
         # Moodle version and doesn't fail if a specific web service isn't registered.
-        resp = requests.get(
+        client = MoodleClient.from_config(cfg)
+        resp = client._session.get(
             f"{cfg.base_url}/my/",
-            cookies={"MoodleSession": cfg.moodle_session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )
         if "/login" in resp.url:
             return False, 0
-        client = MoodleClient.from_config(cfg)
         courses = client.get_courses()
         return True, len(courses)
     except BaseException:
@@ -50,10 +49,8 @@ def _check_session_valid() -> tuple[bool, int]:
 def _fetch_session_timeout(cfg: Config) -> int | None:
     """Scrape Moodle's configured session timeout (seconds) from the dashboard page."""
     try:
-        resp = requests.get(
+        resp = MoodleClient.from_config(cfg)._session.get(
             f"{cfg.base_url}/my/",
-            cookies={"MoodleSession": cfg.moodle_session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )
@@ -65,10 +62,13 @@ def _fetch_session_timeout(cfg: Config) -> int | None:
     return None
 
 
-def _save_credentials(env_path: Path, session: str, sesskey: str) -> None:
+def _save_credentials(env_path: Path, session: str, sesskey: str, *, preserve_browser: bool = False) -> None:
     set_key(str(env_path), "MOODLE_SESSION", session)
     set_key(str(env_path), "MOODLE_SESSKEY", sesskey)
     set_key(str(env_path), "MOODLE_SESSION_SAVED_AT", datetime.now(timezone.utc).isoformat())
+    if not preserve_browser:
+        set_key(str(env_path), "MOODLE_BROWSER_COOKIES", "")
+        set_key(str(env_path), "MOODLE_BROWSER_USER_AGENT", "")
 
 
 def _format_duration(seconds: float) -> str:
@@ -85,6 +85,7 @@ def _format_duration(seconds: float) -> str:
 def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
     """Open Chrome via Selenium, wait for Moodle login, return (session, sesskey)."""
     from selenium import webdriver  # type: ignore[import]
+    from selenium.common.exceptions import WebDriverException
     from selenium.webdriver.chrome.options import Options  # type: ignore[import]
     from selenium.webdriver.chrome.service import Service  # type: ignore[import]
     from webdriver_manager.chrome import ChromeDriverManager  # type: ignore[import]
@@ -114,9 +115,19 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
         while time.time() < deadline:
             current = driver.current_url
             on_moodle = current.startswith(moodle_origin)
-            on_login = any(p in current for p in ["/login/", "loggedout"])
+            on_login = any(p in current for p in ["/login/", "/auth/", "loggedout"])
             if on_moodle and not on_login:
-                break
+                # SSO callbacks can have a guest sesskey before login completes.
+                # Wait for the authenticated page, not merely a URL change.
+                try:
+                    ready = driver.execute_script(
+                        'return !!document.querySelector("a[href*=logout]") '
+                        '&& typeof M !== "undefined" && !!M.cfg.sesskey;'
+                    )
+                except WebDriverException:
+                    ready = False  # Navigation may replace the document mid-check.
+                if ready:
+                    break
             time.sleep(1)
         else:
             console.print("[red]Timed out waiting for login.[/red]")
@@ -137,9 +148,10 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
             console.print("[red]Could not find MoodleSession cookie.[/red]")
             return None
 
-        # Match "sesskey":"value", sesskey:"value", or sesskey: "value"
-        match = re.search(r'"?sesskey"?\s*:\s*"([^"]+)"', driver.page_source)
-        if not match:
+        # Read the live config: themes may initialise it dynamically rather than
+        # embedding a JSON sesskey literal in page_source.
+        sesskey_value = driver.execute_script("return M.cfg.sesskey")
+        if not isinstance(sesskey_value, str) or not sesskey_value:
             console.print(
                 "[yellow]Could not find sesskey automatically.[/yellow]\n"
                 "Use [bold]moodlectl auth set-session SESSION SESSKEY[/bold] to set it manually:\n"
@@ -148,7 +160,12 @@ def _extract_via_selenium(base_url: str) -> tuple[str, str] | None:
             )
             return None
 
-        return session_value, match.group(1)
+        # Load-balanced and browser-bound sites need the affinity cookies and UA
+        # alongside MoodleSession. Save through the same .env as other auth state.
+        set_key(str(Path(".env")), "MOODLE_BROWSER_COOKIES", json.dumps(driver.get_cookies()))
+        set_key(str(Path(".env")), "MOODLE_BROWSER_USER_AGENT",
+                driver.execute_script("return navigator.userAgent"))
+        return session_value, sesskey_value
 
     finally:
         driver.quit()
@@ -290,7 +307,7 @@ def login(
             f"[green]Saved to .env[/green]  "
             f"SESSION={session[:8]}…  SESSKEY={sesskey[:8]}…"
         )
-        load_dotenv(override=True)
+        load_dotenv(Path.cwd() / ".env", override=True)
         try:
             cfg = Config.load()
             resp = requests.get(
@@ -350,7 +367,7 @@ def login(
             f"[green]Saved to .env[/green]  "
             f"SESSION={session_value[:8]}…  SESSKEY={sesskey_value[:8]}…"
         )
-        load_dotenv(override=True)
+        load_dotenv(Path.cwd() / ".env", override=True)
         try:
             client = MoodleClient.from_config(Config.load())
             courses = client.get_courses()
@@ -392,19 +409,17 @@ def login(
         raise typer.Exit(1)
 
     session, sesskey = creds
-    _save_credentials(env_path, session, sesskey)
+    _save_credentials(env_path, session, sesskey, preserve_browser=True)
     console.print(
         f"\n[green]Saved to .env[/green]  "
         f"SESSION={session[:8]}…  SESSKEY={sesskey[:8]}…"
     )
 
-    load_dotenv(override=True)
+    load_dotenv(Path.cwd() / ".env", override=True)
     try:
         cfg = Config.load()
-        resp = requests.get(
+        resp = MoodleClient.from_config(cfg)._session.get(
             f"{cfg.base_url}/my/",
-            cookies={"MoodleSession": session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )
@@ -444,10 +459,8 @@ def check_session() -> None:
         raise typer.Exit(1)
 
     try:
-        resp = requests.get(
+        resp = MoodleClient.from_config(cfg)._session.get(
             f"{cfg.base_url}/my/",
-            cookies={"MoodleSession": cfg.moodle_session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )
@@ -516,11 +529,9 @@ def logout(
     # Server-side logout — best-effort; never fails the command.
     try:
         cfg = Config.load()
-        requests.get(
+        MoodleClient.from_config(cfg)._session.get(
             f"{cfg.base_url}/login/logout.php",
             params={"sesskey": cfg.moodle_sesskey},
-            cookies={"MoodleSession": cfg.moodle_session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )
@@ -535,6 +546,8 @@ def logout(
     set_key(str(env_path), "MOODLE_SESSION", "")
     set_key(str(env_path), "MOODLE_SESSKEY", "")
     set_key(str(env_path), "MOODLE_SESSION_SAVED_AT", "")
+    set_key(str(env_path), "MOODLE_BROWSER_COOKIES", "")
+    set_key(str(env_path), "MOODLE_BROWSER_USER_AGENT", "")
     if not keep_url:
         set_key(str(env_path), "MOODLE_BASE_URL", "")
         console.print("[green]Cleared session, sesskey, and base URL from .env.[/green]")
@@ -590,13 +603,11 @@ def set_session(
         f"SESSION={session[:8]}…  SESSKEY={sesskey[:8]}…"
     )
 
-    load_dotenv(override=True)
+    load_dotenv(Path.cwd() / ".env", override=True)
     try:
         cfg = Config.load()
-        resp = requests.get(
+        resp = MoodleClient.from_config(cfg)._session.get(
             f"{cfg.base_url}/my/",
-            cookies={"MoodleSession": session},
-            headers={"User-Agent": _UA},
             timeout=10,
             allow_redirects=True,
         )

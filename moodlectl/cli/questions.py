@@ -21,6 +21,7 @@ console = Console(legacy_windows=False)
 def import_questions(
         course: int = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`)."),
         file: str = typer.Option(..., "--file", "-f", help="Path to a Moodle XML question bank."),
+        cmid: int | None = typer.Option(None, "--cmid", help="Quiz or question-bank module context (required by Moodle 5)."),
         dry_run: bool = typer.Option(False, "--dry-run",
                                      help="Validate locally and show preview; do not upload."),
         show: bool = typer.Option(False, "--show",
@@ -153,8 +154,13 @@ def import_questions(
 
     # --- Stage 2: remote pre-flight ---
     client = MoodleClient.from_config(Config.load())
+    if cmid is not None:
+        module = content_feature.find_module(client, CourseId(course), Cmid(cmid))
+        if module is None or module['modname'] not in ('quiz', 'qbank'):
+            console.print('[red]The quiz/question bank must belong to the selected course.[/red]')
+            raise typer.Exit(1)
     preflight_url = f"{client.base_url}/question/bank/importquestions/import.php"
-    pf_resp = client._session.get(preflight_url, params={"courseid": course})
+    pf_resp = client._session.get(preflight_url, params={"cmid": cmid} if cmid is not None else {"courseid": course})
     if pf_resp.status_code != 200 or "/login/index.php" in pf_resp.url:
         console.print("[red]Pre-flight failed: session invalid or course not accessible.[/red]")
         console.print("[dim]Run `moodlectl auth login` and try again.[/dim]")
@@ -177,7 +183,7 @@ def import_questions(
 
     # --- Upload ---
     try:
-        result = client.import_question_bank(CourseId(course), str(path))
+        result = client.import_question_bank(CourseId(course), str(path), cmid=Cmid(cmid) if cmid is not None else None)
     except (RuntimeError, FileNotFoundError) as exc:
         console.print(f"[red]Import failed:[/red] {exc}")
         raise typer.Exit(1)
@@ -259,7 +265,7 @@ def to_quiz(
     client = MoodleClient.from_config(Config.load())
 
     try:
-        category_id, context_id = client.find_question_category(CourseId(course), category)
+        category_id, context_id = client.find_question_category(CourseId(course), category, cmid=Cmid(append_to_cmid) if append_to_cmid else None)
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
@@ -286,7 +292,7 @@ def to_quiz(
         console.print("[red]--section and --name are required when not using --append-to-cmid.[/red]")
         raise typer.Exit(1)
 
-    quiz_settings: dict[str, str] = {}
+    quiz_settings: dict[str, str] = {"visible": "1" if visible else "0"}
     if open_at:
         quiz_settings["available_from"] = open_at
     if close_at:

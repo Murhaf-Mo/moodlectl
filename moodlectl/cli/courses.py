@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, cast
 
 import typer
@@ -16,6 +17,25 @@ app = typer.Typer(help="Course commands — list, settings, participants, and in
 console = Console(legacy_windows=False)
 
 _COURSE_OPT = typer.Option(..., "--course", "-c", help="Course ID (from `courses list`).")
+_IMAGE_OPT = typer.Option(..., "--file", "-f", exists=True, dir_okay=False,
+                          readable=True, help="New course overview image.")
+
+
+@app.command("set-image")
+def set_course_image(
+        course: int = _COURSE_OPT,
+        file: Path = _IMAGE_OPT,
+) -> None:
+    """Replace a course's overview images with one local image and verify the upload."""
+    import requests
+
+    client = MoodleClient.from_config(Config.load())
+    try:
+        courses_feature.set_course_image(client, CourseId(course), str(file))
+    except (RuntimeError, ValueError, OSError, requests.RequestException) as exc:
+        console.print(f"[red]Error:[/red] {exc}")
+        raise typer.Exit(1)
+    console.print(f"[green]Course {course} image updated and verified: {file.name}[/green]")
 
 
 @app.command("settings")
