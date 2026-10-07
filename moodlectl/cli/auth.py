@@ -38,7 +38,7 @@ def _check_session_valid() -> tuple[bool, int]:
             timeout=10,
             allow_redirects=True,
         )
-        if "/login" in resp.url:
+        if resp.status_code >= 400 or "/login" in resp.url:
             return False, 0
         courses = client.get_courses()
         return True, len(courses)
@@ -279,6 +279,10 @@ def login(
             help="Moodle password. Falls back to $MOODLE_PASSWORD if unset. "
                  "Prefer the env var to avoid leaking the password into shell history.",
         ),
+        fresh_browser: bool = typer.Option(
+            False, "--fresh-browser",
+            help="Use the original interactive Chrome login instead of saved Microsoft sign-in.",
+        ),
 ) -> None:
     """Save Moodle session credentials. Three modes, in priority order:
 
@@ -337,9 +341,17 @@ def login(
         )
         return
 
+    if os.environ.get("MOODLE_MICROSOFT_USERNAME") and not fresh_browser and not username and not password:
+        from moodlectl.cli.microsoft_auth import microsoft_login
+        try:
+            microsoft_login(username=os.environ["MOODLE_MICROSOFT_USERNAME"], timeout=300)
+            return
+        except Exception:
+            console.print("[yellow]Microsoft reconnection did not complete. Using the original browser login backup.[/yellow]")
+
     # ── Username/password mode (no browser, CI-friendly) ──────────────────────
-    user = username or os.environ.get("MOODLE_USERNAME") or ""
-    pw = password or os.environ.get("MOODLE_PASSWORD") or ""
+    user = "" if fresh_browser else username or os.environ.get("MOODLE_USERNAME") or ""
+    pw = "" if fresh_browser else password or os.environ.get("MOODLE_PASSWORD") or ""
     is_demo = "moodledemo.net" in base_url
     # Demo site rotates the password monthly. If the caller didn't supply one
     # (or only set the username) and we're talking to the demo, scrape the

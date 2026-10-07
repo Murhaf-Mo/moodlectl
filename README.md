@@ -661,6 +661,48 @@ moodlectl analytics letter-grades --course 69
 
 ## For developers
 
+### Microsoft sign-in on macOS and Windows
+
+Install Python 3.12 or newer, Chrome, and the browser extra from this checkout:
+
+```bash
+python -m pip install -e ".[browser]"
+```
+
+On macOS, use `python3` if `python` is not available; on Windows, `py` also works.
+Set `MOODLE_BASE_URL` to the college's HTTPS Moodle URL in your working directory's
+`.env` file. Then run the same commands on either OS:
+
+```bash
+moodlectl auth microsoft-credentials --username YOUR_COLLEGE_EMAIL
+moodlectl auth microsoft-login
+moodlectl --auto-login announcements list --course YOUR_COURSE_ID
+```
+
+The first command requests the password through a hidden confirmation prompt and
+stores it in **macOS Keychain** or **Windows Credential Manager** using `keyring`.
+It refuses plaintext keyring providers. Credentials are enrolled separately on each
+device; do not copy passwords or browser profiles between computers. The credential
+service is `moodlectl:microsoft:MOODLE_BASE_URL`, and the username is the email.
+Browser password saving is disabled. A password is optional: skip the credentials
+command and use `auth microsoft-login --username YOUR_COLLEGE_EMAIL` for interactive
+sign-in with a reusable browser profile.
+
+Complete MFA or the "Stay signed in" prompt when Microsoft requests it. The retained
+Chrome profile is in `%LOCALAPPDATA%/moodlectl/microsoft-browser` on Windows and
+`~/Library/Application Support/moodlectl/microsoft-browser` on macOS.
+
+`--auto-login` checks and renews access **before** executing the requested command.
+To enable it by default for this working directory, add `MOODLE_AUTO_LOGIN=true`
+to `.env`; `--no-auto-login` disables it for one invocation. A failed session transfer
+is retried once, then the original interactive login is used as backup. A failed
+login stops the command. Auth commands skip this preflight to prevent recursion.
+
+To request the original path explicitly, run `moodlectl auth login --fresh-browser`.
+Explicit local-login username/password arguments still use the original form-login
+path. These commands renew access; they do not extend Moodle or Microsoft session
+policies, or bypass MFA. Never put the Microsoft password in `.env` or source files.
+
 ```bash
 git clone https://github.com/Murhaf-Mo/moodlectl
 cd moodlectl

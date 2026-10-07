@@ -22,6 +22,7 @@ from moodlectl.cli import (
     grades,
     grading,
     messages,
+    microsoft_auth,
     questions,
     quizzes,
 )
@@ -48,6 +49,18 @@ app.add_typer(messages.app, name="messages")
 app.add_typer(announcements.app, name="announcements")
 app.add_typer(questions.app, name="questions")
 app.add_typer(quizzes.app, name="quizzes")
+
+
+@app.callback()
+def prepare_session(
+    ctx: typer.Context,
+    auto_login: bool = typer.Option(
+        False, "--auto-login/--no-auto-login", envvar="MOODLE_AUTO_LOGIN",
+        help="Check and renew sign-in before running a command (macOS and Windows).",
+    ),
+):
+    if auto_login and ctx.invoked_subcommand and ctx.invoked_subcommand != "auth":
+        auth.login(session=None, sesskey=None, username=None, password=None, fresh_browser=False)
 
 
 @app.command("summary")
