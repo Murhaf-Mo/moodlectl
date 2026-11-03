@@ -25,6 +25,8 @@ from moodlectl.cli import (
     microsoft_auth,
     questions,
     quizzes,
+    review,
+    skills,
 )
 
 app = typer.Typer(
@@ -49,6 +51,8 @@ app.add_typer(messages.app, name="messages")
 app.add_typer(announcements.app, name="announcements")
 app.add_typer(questions.app, name="questions")
 app.add_typer(quizzes.app, name="quizzes")
+app.add_typer(skills.app, name="skills")
+app.add_typer(review.app, name="review")
 
 
 @app.callback()
@@ -59,7 +63,7 @@ def prepare_session(
         help="Check and renew sign-in before running a command (macOS and Windows).",
     ),
 ):
-    if auto_login and ctx.invoked_subcommand and ctx.invoked_subcommand != "auth":
+    if auto_login and ctx.invoked_subcommand and ctx.invoked_subcommand not in {"auth", "skills"}:
         auth.login(session=None, sesskey=None, username=None, password=None, fresh_browser=False)
 
 

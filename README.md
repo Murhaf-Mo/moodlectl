@@ -86,6 +86,60 @@ course 51.
 
 ## Commands
 
+### AI agent skills
+
+The CLI bundles reusable instructions for correcting quiz questions after student
+submissions, including randomized quizzes, grade previews, full-credit overrides,
+and retiring questions from future draws. Discover them without signing in:
+
+```bash
+moodlectl skills list
+moodlectl skills show moodle-quiz-question-remediation
+moodlectl skills path moodle-quiz-question-remediation
+```
+
+The [skill](moodlectl/agent_skills/moodle-quiz-question-remediation/SKILL.md) and its
+references ship with the Python package and standalone build. `AGENTS.md` routes
+repository agents to it. For a skill-aware agent's own discovery, copy the folder
+printed by `skills path` into that agent's skills directory (for Codex,
+`~/.codex/skills/`). Restart the agent session after installing it. Skill discovery
+commands never run the automatic login preflight.
+
+### Swipe-style question review and full credit
+
+Choose the review scope with the instructor: `quiz`, `attempted`, `bank`,
+`category`, `course` (repeat `--course`), or `all` accessible courses. The reviewer
+is a standalone local HTML file with question cards, images, Keep / Full credit,
+keyboard and swipe navigation, undo, search, a final selection summary and JSON
+export. It contains no student names, submitted answers, or login credentials.
+
+```bash
+moodlectl review create --scope quiz --quiz QUIZ_CMID --output ./question-review --open
+moodlectl review create --scope bank --bank BANK_CMID --output ./bank-review --open
+moodlectl review create --scope attempted --quiz QUIZ_CMID --output ./attempted-review
+moodlectl review create --scope category --course COURSE_ID --category CATEGORY_ID --bank BANK_CMID --output ./category-review
+moodlectl review create --scope course --course COURSE_ID --output ./course-review
+moodlectl review create --scope all --output ./all-banks-review
+# After all cards are reviewed, export decisions from the page, then:
+moodlectl review preview --quiz QUIZ_CMID --review ./question-review/review.json --selection ./selection.json --output ./credit-plan.json
+# After the instructor approves the preview:
+moodlectl review apply --plan ./credit-plan.json --journal ./credit-journal.jsonl
+```
+
+The page records choices only; it never writes Moodle grades. Scope is chosen at
+export time; create a new export to switch scope. Grade corrections match exact
+question-version IDs across random draws, preserve answer keys and submissions,
+and never lower marks. Different versions are reviewed separately. Preview requires
+finished, numerically graded attempts and reports **attempt** grades; the quiz's
+grading method determines the final student grade when multiple attempts exist.
+Unsupported media is flagged for checking in Moodle. If a save is interrupted,
+inspect its journal and live results, then create a fresh preview before retrying.
+
+Retiring questions from future draws is a separate decision each time; `review apply`
+does not change question status. Check pool capacity and versions before retirement.
+Use `moodlectl skills show moodle-quiz-question-remediation` for the complete agent
+workflow. See `moodlectl review create --help` for scope options.
+
 ### auth
 
 ```bash

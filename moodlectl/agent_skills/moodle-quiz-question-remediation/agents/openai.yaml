@@ -1,0 +1,4 @@
+interface:
+  display_name: "Moodle Quiz Question Remediation"
+  short_description: "Correct quiz grading after student submissions"
+  default_prompt: "Use $moodle-quiz-question-remediation to review flagged quiz questions, preview grade changes, and apply the chosen correction while preserving submissions."

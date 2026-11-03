@@ -1525,7 +1525,7 @@ class MoodleAPI(MoodleClientBase):
         parts.append("</quiz>")
         return "\n".join(parts)
 
-    def get_quiz_attempts(self, cmid: Cmid) -> list[dict[str, str]]:
+    def get_quiz_attempts(self, cmid: Cmid, page: int = 0, all_attempts: bool = False) -> list[dict[str, str]]:
         """Scrape the quiz overview report at /mod/quiz/report.php for one quiz.
 
         The report page renders only after the preferences form is POSTed back
@@ -1539,7 +1539,9 @@ class MoodleAPI(MoodleClientBase):
         Empty list if there are no attempts (table absent on first render).
         """
         report_url = f"{self.base_url}/mod/quiz/report.php"
-        params = {"id": int(cmid), "mode": "overview"}
+        params = {"id": int(cmid), "mode": "overview", "page": page}
+        if all_attempts:
+            params["group"] = 0
 
         resp = self._session.get(report_url, params=params)
         if "login" in resp.url:
@@ -1550,20 +1552,41 @@ class MoodleAPI(MoodleClientBase):
                 f"permission on this quiz's course."
             )
         soup = BeautifulSoup(resp.text, "html.parser")
-        prefs_form = soup.find("form")
+        attempts_select = soup.find("select", attrs={"name": "attempts"})
+        prefs_form = attempts_select.find_parent("form") if attempts_select else None
         if not prefs_form:
-            return []
+            raise RuntimeError("Quiz report settings form not found; refusing an incomplete report.")
         form_data: dict[str, str] = {}
         for inp in prefs_form.find_all(["input", "select", "textarea"]):
             n = str(inp.get("name") or "")
-            if n:
+            if not n or inp.has_attr("disabled"):
+                continue
+            if inp.get("type") in {"checkbox", "radio"} and not inp.has_attr("checked"):
+                continue
+            if inp.name == "select":
+                option = inp.find("option", selected=True) or inp.find("option")
+                form_data[n] = str(option.get("value", "")) if option else ""
+            elif inp.name == "textarea":
+                form_data[n] = inp.get_text()
+            else:
                 form_data[n] = str(inp.get("value", "") or "")
-
+        if all_attempts:
+            all_option = next((o for o in attempts_select.find_all("option")
+                               if o.get("value") == "all_with" or o.get_text(" ", strip=True).lower() == "all attempts"), None)
+            if all_option is None:
+                raise RuntimeError("An unfiltered all-attempts report is not available.")
+            form_data.update(attempts=str(all_option["value"]), onlygraded="0", onlyregraded="0", group="0")
+            for inp in prefs_form.find_all("input", attrs={"name": re.compile(r"^state")}):
+                key = str(inp["name"])
+                form_data[key] = "0" if key == "statenotstarted" else "1"
         resp2 = self._session.post(
-            f"{report_url}?id={int(cmid)}&mode=overview",
+            f"{report_url}?id={int(cmid)}&mode=overview&page={page}",
             data=form_data,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
+        resp2.raise_for_status()
+        if "/login/" in resp2.url:
+            raise RuntimeError("Session expired loading the quiz report.")
         soup2 = BeautifulSoup(resp2.text, "html.parser")
         table = soup2.find("table", id="attempts")
         if not table:

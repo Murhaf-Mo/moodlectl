@@ -8,6 +8,7 @@ block_cipher = None
 datas  = collect_data_files("matplotlib")   # fonts, styles, locale (~50 MB)
 datas += collect_data_files("plotext")
 datas += collect_data_files("selenium")
+datas += collect_data_files("moodlectl", includes=["agent_skills/**/*", "review_assets/**/*"])
 
 hiddenimports = [
     # python-dotenv

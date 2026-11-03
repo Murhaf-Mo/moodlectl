@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'">
+  <title>Question review · moodlectl</title>
+  <style>
+    :root { --ink:#19332c; --muted:#66786f; --paper:#f6f7f2; --line:#dbe2d7; --green:#196b4f; --green-soft:#e8f3eb; --amber:#9a541b; --amber-soft:#fff1df; --white:#fff; --shadow:0 12px 40px #19332c0c; }
+    * { box-sizing:border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    button:disabled { cursor:default; opacity:.45; }
+    button,input,select { -webkit-tap-highlight-color:transparent; }
+    :focus-visible { outline:3px solid #5289dd; outline-offset:3px; }
+    [hidden] { display:none !important; }
+    .topbar { border-bottom:1px solid var(--line); background:#fff9; }
+    .topbar-inner { max-width:1440px; margin:auto; padding:18px 32px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .brand { display:flex; align-items:center; gap:11px; font-weight:750; letter-spacing:-.3px; }
+    .brand-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; background:var(--ink); color:white; font-size:20px; }
+    .eyebrow { text-transform:uppercase; letter-spacing:1.8px; font-size:11px; font-weight:750; color:var(--muted); }
+    .local-badge { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:12px; }
+    .local-badge::before { content:""; width:6px; height:6px; border-radius:50%; background:var(--green); }
+    .shell { max-width:1440px; margin:auto; padding:34px 32px 20px; }
+    .heading-row { display:flex; justify-content:space-between; align-items:flex-end; gap:24px; margin-bottom:26px; }
+    h1 { margin:5px 0 6px; font-size:clamp(26px,3vw,38px); line-height:1.16; font-weight:700; letter-spacing:-1.25px; overflow-wrap:anywhere; }
+    .subtitle { color:var(--muted); margin:0; max-width:740px; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; }
+    .button { border:1px solid var(--line); border-radius:10px; background:var(--white); padding:10px 15px; color:var(--ink); font-weight:650; white-space:nowrap; }
+    .button:hover:not(:disabled) { background:#edf2e9; }
+    .button.primary { background:var(--ink); color:white; border-color:var(--ink); }
+    .button.primary:hover:not(:disabled) { background:var(--green); }
+    .button.quiet { background:transparent; }
+    .workspace { display:grid; grid-template-columns:290px minmax(0,1fr); gap:26px; align-items:start; }
+    .sidebar { background:var(--white); border:1px solid var(--line); border-radius:18px; overflow:hidden; position:sticky; top:18px; }
+    .sidebar-top { padding:20px 18px 15px; border-bottom:1px solid var(--line); }
+    .sidebar-title { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:14px; }
+    h2 { font-size:16px; margin:0; letter-spacing:-.3px; }
+    .count-pill { border-radius:6px; background:var(--paper); color:var(--muted); font-size:12px; padding:2px 7px; font-variant-numeric:tabular-nums; }
+    .search { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--paper); margin:0 0 9px; color:var(--ink); }
+    .filter { width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--ink); }
+    .queue { list-style:none; padding:7px; margin:0; max-height:calc(100vh - 335px); min-height:170px; overflow:auto; }
+    .queue li + li { margin-top:3px; }
+    .queue-button { display:flex; align-items:center; gap:9px; width:100%; padding:11px 9px; border:1px solid transparent; background:transparent; border-radius:9px; text-align:left; color:var(--ink); }
+    .queue-button:hover { background:var(--paper); }
+    .queue-button[aria-current="true"] { background:var(--green-soft); border-color:#c9dfcf; }
+    .queue-number { font-size:12px; font-variant-numeric:tabular-nums; color:var(--muted); min-width:23px; }
+    .queue-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; font-size:12px; }
+    .decision-dot { width:9px; height:9px; flex:none; border:1.5px solid #bfcabe; border-radius:50%; }
+    .decision-dot.keep { border-color:var(--green); background:var(--green); }
+    .decision-dot.full_credit { border-color:#ce8b4a; background:#ce8b4a; }
+    .queue-empty { color:var(--muted); text-align:center; padding:24px 10px; }
+    .queue-footer { display:flex; gap:14px; font-size:11px; color:var(--muted); padding:13px 18px; border-top:1px solid var(--line); }
+    .queue-footer span { display:flex; align-items:center; gap:5px; }
+    .queue-footer .decision-dot { width:7px; height:7px; }
+    .review-area { min-width:0; }
+    .progress-row { display:flex; align-items:center; justify-content:space-between; gap:16px; margin:0 2px 11px; }
+    .progress-label { font-size:13px; font-weight:650; }
+    .progress-stats { font-size:12px; color:var(--muted); }
+    progress { display:block; width:100%; height:5px; border:0; border-radius:9px; background:#e1e7dd; margin-bottom:24px; accent-color:var(--green); }
+    progress::-webkit-progress-bar { background:#e1e7dd; border-radius:9px; }
+    progress::-webkit-progress-value { background:var(--green); border-radius:9px; transition:width .2s; }
+    progress::-moz-progress-bar { background:var(--green); border-radius:9px; }
+    .card-stage { position:relative; }
+    .question-card { position:relative; background:var(--white); border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow); overflow:hidden; touch-action:pan-y; transition:transform .16s,box-shadow .16s; }
+    .question-card.dragging { transition:none; }
+    .card-top { display:flex; align-items:flex-start; gap:14px; justify-content:space-between; border-bottom:1px solid var(--line); padding:21px 26px 18px; }
+    .question-name { margin:5px 0 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }
+    .question-id { margin-top:5px; font-size:11px; color:var(--muted); font-variant-numeric:tabular-nums; }
+    .question-warnings { padding:12px 26px; color:var(--amber); font-size:12px; background:var(--amber-soft); border-top:1px solid #eed5b8; }
+    .question-warnings p { margin:0; }
+    .question-warnings p + p { margin-top:5px; }
+    .question-number { font-size:17px; font-weight:700; letter-spacing:-.4px; }
+    .status-badge { border:1px solid var(--line); border-radius:7px; font-size:11px; padding:4px 9px; white-space:nowrap; color:var(--muted); }
+    .status-badge.keep { background:var(--green-soft); border-color:#c9dfcf; color:var(--green); }
+    .status-badge.full_credit { background:var(--amber-soft); border-color:#f0d4b4; color:var(--amber); }
+    .question-content { padding:28px 30px 30px; font-size:17px; line-height:1.75; min-height:250px; max-height:58vh; overflow:auto; overflow-wrap:anywhere; }
+    .question-content > :first-child { margin-top:0; }
+    .question-content > :last-child { margin-bottom:0; }
+    .question-content p { margin:0 0 1em; }
+    .question-content img { max-width:100%; height:auto; }
+    .question-content pre { max-width:100%; overflow:auto; padding:16px; border-radius:9px; background:#f4f6f1; font-size:14px; line-height:1.6; text-align:left; direction:ltr; }
+    .question-content code { font-size:.9em; }
+    .question-content table { border-collapse:collapse; max-width:100%; }
+    .question-content td,.question-content th { padding:7px 10px; border:1px solid var(--line); }
+    .question-content ul,.question-content ol { padding-inline-start:1.7em; }
+    .question-content .answer { padding-top:12px; border-top:1px solid var(--line); }
+    .card-metrics { display:flex; gap:18px; padding:12px 26px; background:#fafbf8; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
+    .card-metrics strong { color:var(--ink); font-variant-numeric:tabular-nums; }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
+    .decision-button { display:flex; align-items:center; justify-content:center; gap:12px; padding:17px 14px; border-radius:13px; border:1px solid; text-align:left; transition:background .15s,transform .15s; }
+    .decision-button:hover { transform:translateY(-2px); }
+    .decision-button.credit { color:var(--amber); background:var(--amber-soft); border-color:#eed5b8; }
+    .decision-button.credit:hover { background:#ffe7cb; }
+    .decision-button.keep { color:var(--green); background:var(--green-soft); border-color:#c7decf; }
+    .decision-button.keep:hover { background:#d9ecde; }
+    .action-icon { font-size:24px; line-height:1; }
+    .action-title { display:block; font-weight:750; font-size:15px; }
+    .action-description { display:block; font-size:11px; margin-top:1px; opacity:.85; }
+    .navigation { display:flex; align-items:center; justify-content:space-between; gap:12px; padding-top:17px; }
+    .navigation-group { display:flex; gap:7px; }
+    .nav-button { width:39px; height:36px; padding:0; font-size:18px; }
+    .shortcut-hint { color:var(--muted); font-size:11px; }
+    kbd { font:inherit; padding:1px 4px; border:1px solid var(--line); border-radius:4px; background:#fff8; }
+    .explanation { font-size:12px; color:var(--muted); margin:20px 2px 0; max-width:720px; }
+    .swipe-label { position:absolute; top:80px; z-index:2; padding:7px 14px; border:2px solid; border-radius:7px; font-weight:800; letter-spacing:1px; opacity:0; pointer-events:none; background:white; }
+    .swipe-label.right { left:25px; color:var(--green); transform:rotate(-9deg); }
+    .swipe-label.left { right:25px; color:var(--amber); transform:rotate(9deg); }
+    .summary { background:white; padding:32px; border:1px solid var(--line); border-radius:20px; box-shadow:var(--shadow); }
+    .summary-icon { width:45px; height:45px; display:grid; place-items:center; border-radius:50%; background:var(--green-soft); color:var(--green); font-size:24px; margin-bottom:17px; }
+    .summary h2 { font-size:26px; letter-spacing:-.8px; margin-bottom:7px; }
+    .summary p { margin:0 0 20px; color:var(--muted); }
+    .summary-stats { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:23px 0; }
+    .summary-stat { padding:17px 20px; border:1px solid var(--line); border-radius:12px; }
+    .summary-stat strong { display:block; font-size:30px; letter-spacing:-1px; }
+    .summary-stat span { font-size:12px; color:var(--muted); }
+    .selected-list { list-style:none; padding:0; margin:12px 0 24px; border-top:1px solid var(--line); }
+    .selected-list li { display:flex; justify-content:space-between; gap:12px; align-items:center; padding:11px 0; border-bottom:1px solid var(--line); }
+    .selected-list .name { overflow-wrap:anywhere; font-size:12px; }
+    .selected-list button { padding:6px 10px; font-size:12px; }
+    .summary-next { background:var(--paper); border-radius:11px; padding:15px 17px; margin:18px 0; color:var(--muted); font-size:13px; }
+    .summary-next strong { color:var(--ink); }
+    .footer { display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:28px; padding:18px 0 4px; border-top:1px solid var(--line); font-size:11px; color:var(--muted); }
+    .mobile-queue,.close-queue { display:none; }
+    .storage-notice { color:var(--amber); margin:0 0 16px; font-size:12px; background:var(--amber-soft); border-radius:8px; padding:10px 14px; }
+    .error-panel { max-width:600px; padding:30px; margin:80px auto; border:1px solid var(--line); border-radius:18px; background:white; }
+    .sr-only { position:absolute; width:1px; height:1px; margin:-1px; padding:0; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+    .backdrop { display:none; }
+    @media(max-width:1000px) { .workspace { grid-template-columns:245px minmax(0,1fr); gap:20px; } .shell { padding:27px 22px 18px; } .topbar-inner { padding:16px 22px; } .heading-row { align-items:flex-start; } .question-content { padding:23px; } .shortcut-hint { display:none; } }
+    @media(max-width:740px) {
+      .shell { padding:23px 16px 14px; } .topbar-inner { padding:13px 16px; } .heading-row { flex-direction:column; gap:17px; margin-bottom:21px; } h1 { font-size:29px; } .subtitle { font-size:13px; } .toolbar { width:100%; } .toolbar .button { flex:1; font-size:12px; padding:10px 11px; }
+      .workspace { display:block; } .sidebar { display:none; position:fixed; top:0; left:0; bottom:0; width:min(335px,88vw); z-index:20; border-radius:0; border:0; box-shadow:12px 0 50px #19332c22; } .sidebar.open { display:flex; flex-direction:column; } .sidebar.open .queue { max-height:none; flex:1; } .sidebar-top { padding-top:25px; } .queue-footer { margin-top:auto; } .mobile-queue,.close-queue { display:inline-block; } .close-queue { border:0; background:transparent; font-size:23px; padding:0 5px; color:var(--ink); } .backdrop.open { display:block; position:fixed; inset:0; background:#19332c66; z-index:19; } .question-content { min-height:230px; max-height:54vh; padding:24px 21px; font-size:16px; } .card-top { padding:18px 21px 15px; } .question-card { border-radius:16px; } .actions { gap:10px; margin-top:14px; } .decision-button { padding:14px 9px; gap:8px; } .action-title { font-size:14px; } .action-description { font-size:10px; } .action-icon { font-size:20px; } .progress-stats { font-size:11px; } .summary { padding:25px 21px; } .summary h2 { font-size:24px; } .footer { margin-top:23px; } .local-badge { font-size:11px; }
+    }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
+  </style>
+</head>
+<body>
+  <header class="topbar"><div class="topbar-inner"><div class="brand"><span class="brand-mark" aria-hidden="true">q</span><span>moodlectl <span style="font-weight:400;color:var(--muted)">/ review</span></span></div><div class="local-badge" id="save-status">Local review</div></div></header>
+  <main class="shell" id="app" hidden>
+    <div class="heading-row"><div><div class="eyebrow" id="scope-label">Question review</div><h1 id="review-title">Review questions</h1><p class="subtitle">One question at a time. Keep it, or select it for full credit.</p></div><div class="toolbar"><button class="button mobile-queue" id="open-queue" aria-controls="queue-panel" aria-expanded="false">Question queue</button><button class="button" id="show-summary">Selection <span id="selection-count">0</span></button><button class="button primary" id="export-top" disabled>Export decisions</button></div></div>
+    <p class="storage-notice" id="storage-notice" role="status" hidden>Browser storage is unavailable. Your decisions stay in this tab; export them before closing it.</p>
+    <div class="workspace">
+      <aside class="sidebar" id="queue-panel" aria-label="Question queue">
+        <div class="sidebar-top"><div class="sidebar-title"><h2>Question queue</h2><span class="count-pill" id="queue-count"></span><button class="close-queue" id="close-queue" aria-label="Close question queue">×</button></div><label class="sr-only" for="search">Search question names and content</label><input class="search" id="search" type="search" placeholder="Search questions…" autocomplete="off"><label class="sr-only" for="filter">Filter questions by decision</label><select class="filter" id="filter"><option value="all">All questions</option><option value="unreviewed">Not reviewed</option><option value="full_credit">Full credit selected</option><option value="keep">Keep</option></select></div>
+        <ol class="queue" id="queue"></ol><div class="queue-footer"><span><i class="decision-dot keep" aria-hidden="true"></i>Keep</span><span><i class="decision-dot full_credit" aria-hidden="true"></i>Full credit</span><span><i class="decision-dot" aria-hidden="true"></i>Not reviewed</span></div>
+      </aside>
+      <section class="review-area" aria-label="Review workspace">
+        <div class="progress-row"><span class="progress-label" id="progress-label"></span><span class="progress-stats" id="progress-stats"></span></div><progress id="progress" aria-label="Questions reviewed" max="1" value="0"></progress>
+        <div id="card-view">
+          <div class="card-stage"><article class="question-card" id="question-card" aria-labelledby="question-number" tabindex="-1"><span class="swipe-label left" id="swipe-left" aria-hidden="true">FULL CREDIT</span><span class="swipe-label right" id="swipe-right" aria-hidden="true">KEEP</span><div class="card-top"><div><div class="question-number" id="question-number"></div><div class="question-name" id="question-name"></div><div class="question-id" id="question-id"></div></div><span class="status-badge" id="question-status"></span></div><div class="question-content" id="question-content" dir="auto" tabindex="0" aria-label="Question content"></div><div class="question-warnings" id="question-warnings" hidden></div><div class="card-metrics" id="card-metrics" hidden></div></article></div>
+          <div class="actions"><button class="decision-button credit" id="credit"><span class="action-icon" aria-hidden="true">←</span><span><span class="action-title">Full credit</span><span class="action-description">Select for grade review</span></span></button><button class="decision-button keep" id="keep"><span><span class="action-title">Keep question</span><span class="action-description">Leave grading as it is</span></span><span class="action-icon" aria-hidden="true">→</span></button></div>
+          <div class="navigation"><button class="button quiet" id="undo" disabled>↶ Undo</button><span class="shortcut-hint"><kbd>F</kbd> full credit · <kbd>K</kbd> keep · <kbd>←</kbd> <kbd>→</kbd> browse</span><div class="navigation-group"><button class="button nav-button" id="previous" aria-label="Previous question">‹</button><button class="button nav-button" id="next" aria-label="Next question">›</button></div></div>
+          <p class="explanation">Swipe right to keep, left to select full credit. Decisions are reversible and only saved locally. Nothing changes in Moodle from this page.</p>
+        </div>
+        <section class="summary" id="summary-view" aria-labelledby="summary-heading" hidden><div class="summary-icon" aria-hidden="true">✓</div><h2 id="summary-heading" tabindex="-1">Your selection</h2><p id="summary-description"></p><div class="summary-stats"><div class="summary-stat"><strong id="summary-keep">0</strong><span>questions to keep</span></div><div class="summary-stat"><strong id="summary-credit">0</strong><span>selected for full credit</span></div></div><h3 style="font-size:13px;margin:0">Full credit selection</h3><ul class="selected-list" id="selected-list"></ul><div class="summary-next"><strong>Next step</strong><br>Export your decisions and send the JSON file to your agent for a grade preview. Applying grade changes is a separate step.</div><div class="toolbar"><button class="button primary" id="export-summary" disabled>Export decisions</button><button class="button" id="resume">Continue review</button><button class="button quiet" id="undo-summary" disabled>↶ Undo last decision</button></div><p id="export-help" style="font-size:12px;margin:14px 0 0"></p></section>
+      </section>
+    </div>
+    <footer class="footer"><span>Private review · Decisions stay in this browser until you export.</span><span id="source-label"></span></footer>
+  </main>
+  <div class="backdrop" id="backdrop"></div>
+  <section class="error-panel" id="error-panel" hidden><h1 style="font-size:25px">This review could not be opened</h1><p id="error-message"></p></section>
+  <div class="sr-only" id="announcement" aria-live="polite" aria-atomic="true"></div>
+  <script id="review-data" type="application/json">__REVIEW_DATA__</script>
+  <script>
+  (() => {
+    "use strict";
+    const $ = (id) => document.getElementById(id);
+    let data;
+    try {
+      data = JSON.parse($("review-data").textContent);
+      if (!data || data.schema_version !== 1 || typeof data.review_id !== "string" || !data.review_id ||
+          !data.source || typeof data.source.base_url !== "string" || !Array.isArray(data.questions)) {
+        throw new Error("The review file is missing required information. Generate a new review with moodlectl.");
+      }
+      const ids = new Set();
+      for (const question of data.questions) {
+        if (!Number.isSafeInteger(question.id) || ids.has(question.id) || typeof question.html !== "string") {
+          throw new Error("The question list is invalid. Generate a new review with moodlectl.");
+        }
+        ids.add(question.id);
+      }
+    } catch (error) {
+      $("error-panel").hidden = false;
+      $("error-message").textContent = error instanceof SyntaxError ? "The embedded review data is incomplete. Generate a new review with moodlectl." : error.message;
+      return;
+    }
+
+    const questions = data.questions;
+    const validIds = new Set(questions.map((question) => String(question.id)));
+    const storageKey = "moodlectl:question-review:v1:" + data.review_id;
+    let decisions = Object.create(null);
+    let current = 0;
+    let history = [];
+    let summary = questions.length === 0;
+    let storageAvailable = true;
+    let drag = null;
+    const plainText = questions.map((question) => {
+      const fragment = document.createElement("template");
+      fragment.innerHTML = question.html;
+      return ((question.name || "") + " " + fragment.content.textContent).toLocaleLowerCase();
+    });
+
+    function announce(message) { $("announcement").textContent = message; }
+    function isDecision(value) { return value === "keep" || value === "full_credit"; }
+    function reviewedCount() { return Object.keys(decisions).length; }
+    function selected() { return questions.filter((question) => decisions[question.id] === "full_credit"); }
+    function allReviewed() { return reviewedCount() === questions.length; }
+    function storageFailed() {
+      storageAvailable = false;
+      $("storage-notice").hidden = false;
+      $("save-status").textContent = "Saved in this tab";
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
+      if (saved && saved.review_id === data.review_id && saved.base_url === data.source.base_url) {
+        for (const [id, value] of Object.entries(saved.decisions || {})) {
+          if (validIds.has(id) && isDecision(value)) decisions[id] = value;
+        }
+        if (Number.isInteger(saved.current) && saved.current >= 0 && saved.current < questions.length) current = saved.current;
+        else current = Math.max(0, questions.findIndex((question) => !decisions[question.id]));
+        summary = allReviewed();
+      }
+    } catch (_) { storageFailed(); }
+
+    function save() {
+      if (!storageAvailable) return;
+      try {
+        localStorage.setItem(storageKey, JSON.stringify({
+          review_id: data.review_id, base_url: data.source.base_url, decisions, current
+        }));
+        $("save-status").textContent = "Saved in this browser";
+      } catch (_) { storageFailed(); }
+    }
+
+    function label(decision) { return decision === "keep" ? "Keep" : decision === "full_credit" ? "Full credit selected" : "Not reviewed"; }
+    function questionName(question) { return String(question.name || "Question " + question.id); }
+    function closeQueue() {
+      $("queue-panel").classList.remove("open");
+      $("backdrop").classList.remove("open");
+      $("open-queue").setAttribute("aria-expanded", "false");
+    }
+    function openQuestion(index, focus = false) {
+      if (index < 0 || index >= questions.length) return;
+      current = index;
+      summary = false;
+      closeQueue();
+      save();
+      render();
+      if (focus) $("question-card").focus({ preventScroll:true });
+    }
+
+    function renderQueue() {
+      const query = $("search").value.trim().toLocaleLowerCase();
+      const filter = $("filter").value;
+      const fragment = document.createDocumentFragment();
+      let visible = 0;
+      questions.forEach((question, index) => {
+        const decision = decisions[question.id];
+        if (query && !plainText[index].includes(query)) return;
+        if (filter === "unreviewed" && decision) return;
+        if (isDecision(filter) && decision !== filter) return;
+        visible++;
+        const item = document.createElement("li");
+        const button = document.createElement("button");
+        button.className = "queue-button";
+        button.setAttribute("aria-current", String(index === current && !summary));
+        button.setAttribute("aria-label", "Question " + (index + 1) + ": " + questionName(question) + ". " + label(decision));
+        const number = document.createElement("span"); number.className = "queue-number"; number.textContent = String(index + 1).padStart(2, "0");
+        const name = document.createElement("span"); name.className = "queue-name"; name.textContent = questionName(question); name.title = questionName(question);
+        const dot = document.createElement("span"); dot.className = "decision-dot" + (decision ? " " + decision : ""); dot.setAttribute("aria-hidden", "true");
+        button.append(number, name, dot);
+        button.addEventListener("click", () => openQuestion(index, true));
+        item.append(button); fragment.append(item);
+      });
+      if (!visible) {
+        const item = document.createElement("li"); item.className = "queue-empty"; item.textContent = "No matching questions"; fragment.append(item);
+      }
+      $("queue").replaceChildren(fragment);
+      $("queue-count").textContent = query || filter !== "all" ? visible + " / " + questions.length : String(questions.length);
+    }
+
+    function renderSummary() {
+      const credit = selected();
+      const remaining = questions.length - reviewedCount();
+      $("summary-heading").textContent = remaining ? "Your selection so far" : "Review complete";
+      $("summary-description").textContent = remaining ? remaining + " question" + (remaining === 1 ? " still needs" : "s still need") + " a decision." : "All questions have a decision. You can revisit any selection before exporting.";
+      $("summary-keep").textContent = Object.values(decisions).filter((value) => value === "keep").length;
+      $("summary-credit").textContent = credit.length;
+      const fragment = document.createDocumentFragment();
+      credit.forEach((question) => {
+        const item = document.createElement("li");
+        const name = document.createElement("span"); name.className = "name"; name.textContent = questionName(question);
+        const button = document.createElement("button"); button.className = "button"; button.textContent = "Review"; button.setAttribute("aria-label", "Review " + questionName(question));
+        button.addEventListener("click", () => openQuestion(questions.indexOf(question), true));
+        item.append(name, button); fragment.append(item);
+      });
+      if (!credit.length) {
+        const item = document.createElement("li"); item.className = "name"; item.textContent = "No questions selected for full credit."; fragment.append(item);
+      }
+      $("selected-list").replaceChildren(fragment);
+      $("export-help").textContent = remaining ? "Review every question to enable export." : "The export contains question IDs and decisions. It does not apply grades.";
+      $("resume").textContent = remaining ? "Continue review" : "Review questions again";
+      $("resume").disabled = questions.length === 0;
+    }
+
+    function renderCard() {
+      const question = questions[current];
+      if (!question) return;
+      const decision = decisions[question.id];
+      $("question-number").textContent = "Question " + (current + 1) + " of " + questions.length;
+      $("question-name").textContent = questionName(question);
+      $("question-id").textContent = "Question ID " + question.id + (question.version == null ? "" : " · Version " + String(question.version));
+      $("question-status").textContent = label(decision);
+      $("question-status").className = "status-badge" + (decision ? " " + decision : "");
+      // Question HTML is sanitized and made self-contained by the Python exporter.
+      $("question-content").innerHTML = question.html;
+      $("question-content").scrollTop = 0;
+      const warnings = document.createDocumentFragment();
+      (Array.isArray(question.warnings) ? question.warnings : []).forEach((warning) => {
+        const paragraph = document.createElement("p"); paragraph.textContent = String(warning); warnings.append(paragraph);
+      });
+      $("question-warnings").hidden = warnings.childNodes.length === 0;
+      $("question-warnings").replaceChildren(warnings);
+      const metrics = document.createDocumentFragment();
+      [["attempt_count", "Attempts"], ["incorrect_count", "Incorrect"]].forEach(([key, title]) => {
+        if (!Number.isFinite(question[key]) || question[key] < 0) return;
+        const span = document.createElement("span"); const strong = document.createElement("strong"); strong.textContent = question[key]; span.append(title + " ", strong); metrics.append(span);
+      });
+      $("card-metrics").hidden = metrics.childNodes.length === 0;
+      $("card-metrics").replaceChildren(metrics);
+      $("previous").disabled = current === 0;
+      $("next").disabled = current === questions.length - 1;
+      $("credit").setAttribute("aria-pressed", String(decision === "full_credit"));
+      $("keep").setAttribute("aria-pressed", String(decision === "keep"));
+    }
+
+    function render() {
+      const count = reviewedCount();
+      $("progress-label").textContent = count + " of " + questions.length + " reviewed";
+      $("progress-stats").textContent = selected().length + " selected for full credit";
+      $("progress").max = Math.max(1, questions.length);
+      $("progress").value = count;
+      $("selection-count").textContent = selected().length;
+      $("undo").disabled = $("undo-summary").disabled = history.length === 0;
+      $("export-top").disabled = $("export-summary").disabled = !allReviewed();
+      $("export-top").title = allReviewed() ? "Download your decisions as JSON" : "Review every question to enable export";
+      $("card-view").hidden = summary;
+      $("summary-view").hidden = !summary;
+      renderQueue();
+      if (summary) renderSummary(); else renderCard();
+    }
+
+    function decide(value) {
+      if (summary || !questions[current]) return;
+      const question = questions[current];
+      history.push({ index:current, previous:decisions[question.id] || null });
+      decisions[question.id] = value;
+      const next = questions.findIndex((item, index) => index > current && !decisions[item.id]);
+      const first = questions.findIndex((item) => !decisions[item.id]);
+      if (first === -1) summary = true;
+      else current = next === -1 ? first : next;
+      save(); render();
+      announce("Question " + (history[history.length - 1].index + 1) + ": " + label(value) + ". " + (summary ? "Review complete." : "Showing question " + (current + 1) + "."));
+      if (summary) $("summary-heading").focus({ preventScroll:true });
+    }
+
+    function undo() {
+      const last = history.pop();
+      if (!last) return;
+      const id = questions[last.index].id;
+      if (last.previous) decisions[id] = last.previous; else delete decisions[id];
+      current = last.index; summary = false;
+      save(); render();
+      announce("Decision undone. Showing question " + (current + 1) + ".");
+      $("question-card").focus({ preventScroll:true });
+    }
+
+    function exportDecisions() {
+      if (!allReviewed()) { announce("Review every question before exporting."); return; }
+      const payload = {
+        schema_version:1, review_id:data.review_id, base_url:data.source.base_url,
+        selected_question_ids:selected().map((question) => question.id),
+        decisions:{ ...decisions }, complete:true
+      };
+      const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2) + "\n"], { type:"application/json" }));
+      const link = document.createElement("a"); link.href = url; link.download = "moodle-review-" + data.review_id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) + "-decisions.json"; document.body.append(link); link.click(); link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      announce("Decisions exported. Send the downloaded JSON file to your agent for a grade preview.");
+    }
+
+    $("review-title").textContent = String(data.source.title || "Review questions");
+    const scopes = { quiz:"Quiz question review", attempted:"Attempted question review", category:"Question category review", course:"Course question review", all:"Question bank review", site:"Question review" };
+    $("scope-label").textContent = scopes[data.source.scope] || "Question review";
+    try { $("source-label").textContent = new URL(data.source.base_url).hostname; } catch (_) { $("source-label").textContent = "Moodle question review"; }
+    document.title = String(data.source.title || "Question review") + " · moodlectl";
+    $("keep").addEventListener("click", () => decide("keep"));
+    $("credit").addEventListener("click", () => decide("full_credit"));
+    $("undo").addEventListener("click", undo);
+    $("undo-summary").addEventListener("click", undo);
+    $("previous").addEventListener("click", () => openQuestion(current - 1));
+    $("next").addEventListener("click", () => openQuestion(current + 1));
+    $("show-summary").addEventListener("click", () => { summary = true; closeQueue(); render(); $("summary-heading").focus(); });
+    $("resume").addEventListener("click", () => {
+      const first = questions.findIndex((question) => !decisions[question.id]);
+      openQuestion(first === -1 ? current : first, true);
+    });
+    $("export-top").addEventListener("click", exportDecisions);
+    $("export-summary").addEventListener("click", exportDecisions);
+    $("search").addEventListener("input", renderQueue);
+    $("filter").addEventListener("change", renderQueue);
+    $("open-queue").addEventListener("click", () => {
+      $("queue-panel").classList.add("open"); $("backdrop").classList.add("open"); $("open-queue").setAttribute("aria-expanded", "true"); $("search").focus();
+    });
+    $("close-queue").addEventListener("click", () => { closeQueue(); $("open-queue").focus(); });
+    $("backdrop").addEventListener("click", closeQueue);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") { closeQueue(); return; }
+      if ($("queue-panel").classList.contains("open")) {
+        if (event.key === "Tab") {
+          const controls = Array.from($("queue-panel").querySelectorAll("button,input,select")).filter((element) => !element.disabled && element.getClientRects().length);
+          const first = controls[0], last = controls[controls.length - 1];
+          if (event.shiftKey && event.target === first) { event.preventDefault(); last.focus(); }
+          else if (!event.shiftKey && event.target === last) { event.preventDefault(); first.focus(); }
+        }
+        return;
+      }
+      if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || /^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName) || event.target.isContentEditable) return;
+      if (event.key.toLowerCase() === "z" || event.key.toLowerCase() === "u") { event.preventDefault(); undo(); return; }
+      if (summary) return;
+      if (event.key === "ArrowLeft") { event.preventDefault(); openQuestion(current - 1); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); openQuestion(current + 1); }
+      else if (event.key.toLowerCase() === "k") { event.preventDefault(); decide("keep"); }
+      else if (event.key.toLowerCase() === "f") { event.preventDefault(); decide("full_credit"); }
+    });
+
+    function resetDrag() {
+      drag = null;
+      $("question-card").classList.remove("dragging");
+      $("question-card").style.transform = "";
+      $("swipe-left").style.opacity = $("swipe-right").style.opacity = "0";
+    }
+    $("question-card").addEventListener("pointerdown", (event) => {
+      if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0) || event.target.closest("a,button,input,select,textarea,pre,code") || window.getSelection().toString()) return;
+      drag = { id:event.pointerId, x:event.clientX, y:event.clientY, dx:0, dy:0, index:current };
+    });
+    $("question-card").addEventListener("pointermove", (event) => {
+      if (!drag || drag.id !== event.pointerId) return;
+      drag.dx = event.clientX - drag.x; drag.dy = event.clientY - drag.y;
+      if (Math.abs(drag.dy) > 30 && Math.abs(drag.dy) > Math.abs(drag.dx)) { resetDrag(); return; }
+      if (Math.abs(drag.dx) < 20 || Math.abs(drag.dx) < Math.abs(drag.dy) * 1.6) return;
+      $("question-card").classList.add("dragging");
+      $("question-card").style.transform = "translateX(" + Math.max(-160, Math.min(160, drag.dx)) + "px) rotate(" + drag.dx / 35 + "deg)";
+      $("swipe-right").style.opacity = drag.dx > 0 ? String(Math.min(1, drag.dx / 100)) : "0";
+      $("swipe-left").style.opacity = drag.dx < 0 ? String(Math.min(1, -drag.dx / 100)) : "0";
+    });
+    window.addEventListener("pointerup", (event) => {
+      if (!drag || drag.id !== event.pointerId) return;
+      const { dx, dy, index } = drag;
+      const threshold = Math.min(120, $("question-card").clientWidth * .28);
+      resetDrag();
+      if (current === index && Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.6 && !window.getSelection().toString()) decide(dx > 0 ? "keep" : "full_credit");
+    });
+    window.addEventListener("pointercancel", resetDrag);
+    window.addEventListener("blur", resetDrag);
+    $("app").hidden = false;
+    render();
+    save();
+  })();
+  </script>
+</body>
+</html>
