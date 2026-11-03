@@ -6,7 +6,113 @@ from typer.testing import CliRunner
 
 from moodlectl.cli.auth import _check_session_valid
 from moodlectl.cli.main import app
-from moodlectl.cli.microsoft_auth import _browser_profile, _credential_store, microsoft_login
+from moodlectl.cli.microsoft_auth import (
+    _browser_profile,
+    _credential_store,
+    _handle_microsoft_prompt,
+    microsoft_login,
+)
+
+
+def _prompt_driver(elements, url="https://login.microsoftonline.com/common/login"):
+    driver = Mock()
+    driver.current_url = url
+    driver.find_elements.side_effect = lambda by, selector: elements.get(selector, [])
+    return driver
+
+
+def _account(email, idp="0"):
+    element = Mock()
+    element.get_attribute.side_effect = {"data-test-id": email, "data-test-idp": idp}.get
+    return element
+
+
+def test_account_selection_matches_exact_email_and_prefers_work_identity():
+    wrong = _account("other@example.com")
+    personal = _account("Teacher@example.com", "1")
+    work = _account("teacher@example.com")
+    other_button = Mock()
+    driver = _prompt_driver({
+        "#tilesHolder": [Mock()],
+        '#tilesHolder [role="button"][data-test-id]': [wrong, personal, work],
+        "#otherTile": [other_button],
+    })
+    assert _handle_microsoft_prompt(driver, "TEACHER@example.com") == "account"
+    work.click.assert_called_once()
+    wrong.click.assert_not_called()
+    personal.click.assert_not_called()
+    other_button.click.assert_not_called()
+
+
+def test_unlisted_account_uses_another_account_instead_of_wrong_identity():
+    wrong = _account("teacher@example.com.attacker.test")
+    another = Mock()
+    driver = _prompt_driver({
+        "#tilesHolder": [Mock()],
+        '#tilesHolder [role="button"][data-test-id]': [wrong],
+        "#otherTile": [another],
+    })
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") == "another-account"
+    another.click.assert_called_once()
+    wrong.click.assert_not_called()
+
+
+def test_ambiguous_account_selection_remains_interactive():
+    accounts = [_account("teacher@example.com"), _account("teacher@example.com")]
+    driver = _prompt_driver({
+        "#tilesHolder": [Mock()],
+        '#tilesHolder [role="button"][data-test-id]': accounts,
+    })
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") is None
+    for account in accounts:
+        account.click.assert_not_called()
+
+
+@pytest.mark.parametrize("url", [
+    "https://login.microsoftonline.com/kmsi",
+    "https://login.live.com/ppsecure/post.srf",
+])
+def test_explicit_stay_signed_in_is_accepted(url):
+    button = Mock()
+    driver = _prompt_driver({
+        "#KmsiDescription, #KmsiTitle, #kmsiTitle": [Mock()],
+        "#idSIButton9": [button],
+    }, url)
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") == "stay-signed-in"
+    button.click.assert_called_once()
+
+
+@pytest.mark.parametrize("url", [
+    "http://login.microsoftonline.com/kmsi",
+    "https://login.microsoftonline.com.attacker.test/kmsi",
+    "https://moodle.example.com/kmsi",
+])
+def test_prompt_automation_rejects_untrusted_pages(url):
+    driver = _prompt_driver({}, url)
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") is None
+    driver.find_elements.assert_not_called()
+
+
+def test_generic_submit_does_not_accept_mfa_or_consent():
+    button = Mock()
+    driver = _prompt_driver({"#idSIButton9": [button]})
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") is None
+    button.click.assert_not_called()
+
+
+def test_hidden_prompt_and_disabled_button_are_not_clicked():
+    marker = Mock()
+    marker.is_displayed.return_value = False
+    button = Mock()
+    driver = _prompt_driver({
+        "#KmsiDescription, #KmsiTitle, #kmsiTitle": [marker],
+        "#idSIButton9": [button],
+    })
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") is None
+    marker.is_displayed.return_value = True
+    button.is_enabled.return_value = False
+    assert _handle_microsoft_prompt(driver, "teacher@example.com") is None
+    button.click.assert_not_called()
 
 
 def test_auth_login_prefers_configured_microsoft_login(tmp_path, monkeypatch):
@@ -71,6 +177,50 @@ def test_reconnect_retains_profile_and_validates_before_success(tmp_path, monkey
     assert options.experimental_options["prefs"]["profile.password_manager_enabled"] is False
     assert "vault-secret" not in (tmp_path / ".env").read_text()
     assert driver.get.call_count == 1
+    client.get_courses.assert_called_once()
+    driver.quit.assert_called_once()
+
+
+def test_reconnect_advances_through_account_and_stay_signed_in(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MOODLE_BASE_URL", "https://moodle.example.com")
+    page = ["account"]
+    account = _account("teacher@example.com")
+    account.click.side_effect = lambda: page.__setitem__(0, "kmsi")
+    yes = Mock()
+    yes.click.side_effect = lambda: page.__setitem__(0, "moodle")
+    driver = Mock()
+    type(driver).current_url = PropertyMock(side_effect=lambda: (
+        "https://moodle.example.com/my/" if page[0] == "moodle"
+        else "https://login.microsoftonline.com/" + page[0]
+    ))
+    screens = {
+        "account": {
+            "#tilesHolder": [Mock()],
+            '#tilesHolder [role="button"][data-test-id]': [account],
+        },
+        "kmsi": {
+            "#KmsiDescription, #KmsiTitle, #kmsiTitle": [Mock()],
+            "#idSIButton9": [yes],
+        },
+    }
+    driver.find_elements.side_effect = lambda by, selector: screens[page[0]].get(selector, [])
+    driver.get_cookies.return_value = [{"name": "MoodleSession", "value": "session"}]
+    driver.execute_script.side_effect = [True, "key", "Browser UA"]
+    client = Mock()
+    client._session.get.return_value = Mock(status_code=200, url="https://moodle.example.com/my/")
+    client.get_courses.return_value = [{"id": 905}]
+    with patch("selenium.webdriver.Chrome", return_value=driver), patch(
+        "webdriver_manager.chrome.ChromeDriverManager"
+    ) as manager, patch("moodlectl.cli.microsoft_auth._microsoft_password", return_value=None), patch(
+        "moodlectl.cli.microsoft_auth.time.sleep"
+    ), patch("moodlectl.cli.microsoft_auth.Config.load"), patch(
+        "moodlectl.cli.microsoft_auth.MoodleClient.from_config", return_value=client
+    ):
+        manager.return_value.install.return_value = "chromedriver"
+        microsoft_login(username="teacher@example.com", timeout=30)
+    account.click.assert_called_once()
+    yes.click.assert_called_once()
     client.get_courses.assert_called_once()
     driver.quit.assert_called_once()
 

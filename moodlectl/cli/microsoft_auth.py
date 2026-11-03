@@ -59,6 +59,55 @@ def _microsoft_password(base_url: str, username: str) -> str | None:
         return None  # Browser sign-in still works without an available vault.
 
 
+def _handle_microsoft_prompt(driver, username: str) -> str | None:
+    """Handle only account selection and Microsoft's explicit KMSI prompt.
+
+    The primary submit button is also used for consent and MFA, so its presence
+    alone must never trigger a click. Unknown pages remain interactive.
+    """
+    from selenium.webdriver.common.by import By
+
+    current = urlparse(driver.current_url)
+    if current.scheme != "https" or current.hostname not in {
+        "login.microsoftonline.com", "login.live.com"
+    }:
+        return None
+
+    def visible(selector):
+        return [
+            element for element in driver.find_elements(By.CSS_SELECTOR, selector)
+            if element.is_displayed() and element.is_enabled()
+        ]
+
+    if visible("#KmsiDescription, #KmsiTitle, #kmsiTitle"):
+        buttons = visible("#idSIButton9")
+        if buttons:
+            buttons[0].click()
+            return "stay-signed-in"
+
+    if visible("#tilesHolder"):
+        accounts = [
+            element for element in visible('#tilesHolder [role="button"][data-test-id]')
+            if (element.get_attribute("data-test-id") or "").strip().casefold()
+            == username.strip().casefold()
+        ]
+        # When Microsoft lists both personal and work accounts for one email,
+        # prefer the work/school identity used by the college's Moodle SSO.
+        work_accounts = [
+            element for element in accounts if element.get_attribute("data-test-idp") == "0"
+        ]
+        candidates = work_accounts or accounts
+        if len(candidates) == 1:
+            candidates[0].click()
+            return "account"
+        if not accounts:
+            others = visible("#otherTile")
+            if others:
+                others[0].click()
+                return "another-account"
+    return None
+
+
 @app.command("microsoft-credentials")
 def microsoft_credentials(
     username: str = typer.Option("", "--username", "-u"),
@@ -104,8 +153,9 @@ def microsoft_login(
 ) -> None:
     """Renew Moodle via a persistent profile and macOS/Windows credential store.
 
-    Handles standard Microsoft email/password forms. MFA and other challenges
-    remain interactive. Does not change the college's session lifetime policy.
+    Handles Microsoft email/password, account selection and Stay signed in.
+    MFA and other challenges remain interactive. Does not change the college's
+    session lifetime policy.
     Original `auth login` remains the independent browser-login backup.
     """
     for attempt in range(2):
@@ -162,6 +212,19 @@ def _microsoft_login_once(username: str, timeout: int) -> None:
                         continue
                     stage = "Waiting for Moodle sign-in. Original auth login is also available."
                 elif current.hostname in {"login.microsoftonline.com", "login.live.com"}:
+                    prompt = _handle_microsoft_prompt(driver, username)
+                    if prompt:
+                        if prompt in {"account", "another-account"}:
+                            entered_email = entered_password = False
+                        if prompt != last_stage:
+                            console.print({
+                                "account": "Selected the configured Microsoft account.",
+                                "another-account": "Opening sign-in for the configured Microsoft account.",
+                                "stay-signed-in": "Accepted Microsoft's Stay signed in prompt.",
+                            }[prompt])
+                            last_stage = prompt
+                        time.sleep(1)
+                        continue
                     emails = driver.find_elements(By.CSS_SELECTOR, 'input[type="email"]')
                     passwords = driver.find_elements(By.CSS_SELECTOR, 'input[type="password"]')
                     if emails and emails[0].is_displayed() and not entered_email:
@@ -174,7 +237,7 @@ def _microsoft_login_once(username: str, timeout: int) -> None:
                         driver.find_element(By.ID, "idSIButton9").click()
                         entered_password = True
                         continue
-                    stage = "Complete any Microsoft MFA, account selection or Stay signed in prompt in Chrome."
+                    stage = "Waiting for a Microsoft sign-in redirect or an interactive challenge in Chrome."
                 else:
                     stage = "Waiting for the college sign-in redirect."
                 if stage != last_stage:

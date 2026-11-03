@@ -692,8 +692,12 @@ Browser password saving is disabled. A password is optional: skip the credential
 command and use `auth microsoft-login --username YOUR_COLLEGE_EMAIL` for interactive
 sign-in with a reusable browser profile.
 
-Complete MFA or the "Stay signed in" prompt when Microsoft requests it. The retained
-Chrome profile is in `%LOCALAPPDATA%/moodlectl/microsoft-browser` on Windows and
+Microsoft account selection and "Stay signed in" are handled automatically on
+Microsoft's HTTPS login pages. Account selection matches the configured email
+exactly; when personal and work identities share that email, the work/school
+identity is preferred. If the email is not listed, the login chooses "Use another
+account". Complete MFA, consent, or other unrecognized challenges yourself.
+The retained Chrome profile is in `%LOCALAPPDATA%/moodlectl/microsoft-browser` on Windows and
 `~/Library/Application Support/moodlectl/microsoft-browser` on macOS.
 
 `--auto-login` checks and renews access **before** executing the requested command.
