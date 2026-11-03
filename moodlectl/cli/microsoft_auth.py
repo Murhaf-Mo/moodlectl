@@ -11,14 +11,26 @@ from urllib.parse import urlparse
 import typer
 from dotenv import load_dotenv, set_key
 
-from moodlectl.cli.auth import app, console, _save_credentials
+from moodlectl.cli.auth import _save_credentials, app, console
 from moodlectl.client import MoodleClient
 from moodlectl.config import Config
 
 
 def _credential_store():
     """Use the native encrypted store, never a plaintext keyring plugin."""
-    import keyring
+    try:
+        import keyring
+    except ImportError as exc:
+        raise RuntimeError(
+            "Credential storage requires the browser extra. "
+            'Install with: pip install "moodlectl[browser]"'
+        ) from exc
+    if sys.platform == "darwin":
+        # Select Keychain explicitly: a user's global keyring configuration may
+        # select a chainer, null backend, or another application's plugin.
+        from keyring.backends.macOS import Keyring
+
+        return Keyring()
     store = keyring.get_keyring()
     expected = {"win32": "keyring.backends.Windows", "darwin": "keyring.backends.macOS"}
     if type(store).__module__ != expected.get(sys.platform):
@@ -61,10 +73,23 @@ def microsoft_credentials(
     username = username or os.environ.get("MOODLE_MICROSOFT_USERNAME", "")
     if not username:
         username = typer.prompt("Microsoft email")
-    store = _credential_store()
+    try:
+        store = _credential_store()
+    except (ImportError, RuntimeError) as exc:
+        console.print(str(exc), markup=False)
+        raise typer.Exit(1) from exc
     password = typer.prompt("Microsoft password", hide_input=True, confirmation_prompt=True)
     try:
         store.set_password(f"moodlectl:microsoft:{base_url}", username, password)
+    except Exception as exc:
+        # Backends may include sensitive values in exception messages. Report
+        # only recovery instructions, never the backend's raw exception.
+        console.print(
+            "Could not save Microsoft credentials. Unlock macOS Keychain or "
+            "Windows Credential Manager and allow access, then retry. "
+            "No Microsoft login configuration was saved."
+        )
+        raise typer.Exit(1) from exc
     finally:
         password = None
     set_key(str(Path(".env")), "MOODLE_MICROSOFT_USERNAME", username)
@@ -95,9 +120,9 @@ def microsoft_login(
 
 def _microsoft_login_once(username: str, timeout: int) -> None:
     from selenium import webdriver
-    from selenium.webdriver.common.by import By
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.chrome.service import Service
+    from selenium.webdriver.common.by import By
     from webdriver_manager.chrome import ChromeDriverManager
 
     base_url = os.environ.get("MOODLE_BASE_URL", "").rstrip("/")

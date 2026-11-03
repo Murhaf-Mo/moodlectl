@@ -681,6 +681,10 @@ moodlectl --auto-login announcements list --course YOUR_COURSE_ID
 
 The first command requests the password through a hidden confirmation prompt and
 stores it in **macOS Keychain** or **Windows Credential Manager** using `keyring`.
+On macOS, the command selects Keychain directly, independently of global keyring
+configuration. If macOS asks for Keychain access, allow access for your Python
+installation. If saving fails, unlock your login keychain in Keychain Access and
+retry; the command leaves your existing login configuration unchanged.
 It refuses plaintext keyring providers. Credentials are enrolled separately on each
 device; do not copy passwords or browser profiles between computers. The credential
 service is `moodlectl:microsoft:MOODLE_BASE_URL`, and the username is the email.
