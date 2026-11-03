@@ -1285,6 +1285,7 @@ class MoodleAPI(MoodleClientBase):
 
     def list_questions_in_category(
             self, course_id: CourseId, category_id: int, context_id: int,
+            cmid: Cmid | None = None,
     ) -> list[dict[str, Any]]:
         """Return one entry per question in the category.
 
@@ -1293,7 +1294,7 @@ class MoodleAPI(MoodleClientBase):
         resp = self._session.get(
             f"{self.base_url}/question/edit.php",
             params={
-                "courseid": int(course_id),
+                **({"cmid": int(cmid)} if cmid is not None else {"courseid": int(course_id)}),
                 "cat": f"{int(category_id)},{int(context_id)}",
                 "qperpage": 1000,
             },
@@ -1461,6 +1462,7 @@ class MoodleAPI(MoodleClientBase):
     def export_question_bank(
             self, course_id: CourseId, category_id: int, context_id: int,
             category_name: str,
+            cmid: Cmid | None = None,
     ) -> str:
         """Export every question in a category as a single Moodle XML document.
 
@@ -1472,7 +1474,7 @@ class MoodleAPI(MoodleClientBase):
         `<question type="category">` declaration so the file is round-trip
         importable via `moodlectl questions import`.
         """
-        questions = self.list_questions_in_category(course_id, category_id, context_id)
+        questions = self.list_questions_in_category(course_id, category_id, context_id, cmid=cmid)
         if not questions:
             raise RuntimeError(f"Category {category_name!r} contains no questions.")
 
@@ -1495,7 +1497,7 @@ class MoodleAPI(MoodleClientBase):
                 params={
                     "id": qid,
                     "sesskey": self.sesskey,
-                    "courseid": int(course_id),
+                    **({"cmid": int(cmid)} if cmid is not None else {"courseid": int(course_id)}),
                 },
                 timeout=60,
             )

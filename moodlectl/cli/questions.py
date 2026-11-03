@@ -455,6 +455,7 @@ def list_questions(
 @app.command("export")
 def export_questions(
         course: int = typer.Option(..., "--course", "-c", help="Course ID."),
+        cmid: int | None = typer.Option(None, "--cmid", help="Quiz or question-bank module context (Moodle 5)."),
         category: str = typer.Option(..., "--category",
                                      help="Question-bank category name (exact match)."),
         output: str = typer.Option(..., "--output", "-o",
@@ -484,7 +485,7 @@ def export_questions(
 
     client = MoodleClient.from_config(Config.load())
     try:
-        cat_id, ctx_id = client.find_question_category(CourseId(course), category)
+        cat_id, ctx_id = client.find_question_category(CourseId(course), category, cmid=Cmid(cmid) if cmid is not None else None)
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
@@ -495,6 +496,7 @@ def export_questions(
     try:
         xml_text = client.export_question_bank(
             CourseId(course), cat_id, ctx_id, category,
+            cmid=Cmid(cmid) if cmid is not None else None,
         )
     except RuntimeError as exc:
         console.print(f"[red]Export failed:[/red] {exc}")
