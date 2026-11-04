@@ -51,7 +51,7 @@
     .queue-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; font-size:12px; }
     .decision-dot { width:9px; height:9px; flex:none; border:1.5px solid #bfcabe; border-radius:50%; }
     .decision-dot.keep { border-color:var(--green); background:var(--green); }
-    .decision-dot.full_credit { border-color:#ce8b4a; background:#ce8b4a; }
+    .decision-dot.flag { border-color:#ce8b4a; background:#ce8b4a; }
     .queue-empty { color:var(--muted); text-align:center; padding:24px 10px; }
     .queue-footer { display:flex; gap:14px; font-size:11px; color:var(--muted); padding:13px 18px; border-top:1px solid var(--line); }
     .queue-footer span { display:flex; align-items:center; gap:5px; }
@@ -76,7 +76,7 @@
     .question-number { font-size:17px; font-weight:700; letter-spacing:-.4px; }
     .status-badge { border:1px solid var(--line); border-radius:7px; font-size:11px; padding:4px 9px; white-space:nowrap; color:var(--muted); }
     .status-badge.keep { background:var(--green-soft); border-color:#c9dfcf; color:var(--green); }
-    .status-badge.full_credit { background:var(--amber-soft); border-color:#f0d4b4; color:var(--amber); }
+    .status-badge.flag { background:var(--amber-soft); border-color:#f0d4b4; color:var(--amber); }
     .question-content { padding:28px 30px 30px; font-size:17px; line-height:1.75; min-height:250px; max-height:58vh; overflow:auto; overflow-wrap:anywhere; }
     .question-content > :first-child { margin-top:0; }
     .question-content > :last-child { margin-bottom:0; }
@@ -88,13 +88,19 @@
     .question-content td,.question-content th { padding:7px 10px; border:1px solid var(--line); }
     .question-content ul,.question-content ol { padding-inline-start:1.7em; }
     .question-content .answer { padding-top:12px; border-top:1px solid var(--line); }
+    .moodle-preview { padding:30px 28px; min-height:220px; }
+    .moodle-preview h3 { margin:0 0 8px; font-size:20px; letter-spacing:-.5px; }
+    .moodle-preview p { color:var(--muted); margin:0 0 17px; font-size:13px; }
+    .moodle-preview a { display:inline-block; color:var(--green); font-size:12px; margin-top:13px; text-underline-offset:3px; }
+    .moodle-preview .preview-message { font-size:12px; margin:14px 0 0; }
+    .moodle-preview .preview-error { color:var(--amber); }
     .card-metrics { display:flex; gap:18px; padding:12px 26px; background:#fafbf8; border-top:1px solid var(--line); font-size:12px; color:var(--muted); }
     .card-metrics strong { color:var(--ink); font-variant-numeric:tabular-nums; }
     .actions { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px; }
     .decision-button { display:flex; align-items:center; justify-content:center; gap:12px; padding:17px 14px; border-radius:13px; border:1px solid; text-align:left; transition:background .15s,transform .15s; }
     .decision-button:hover { transform:translateY(-2px); }
-    .decision-button.credit { color:var(--amber); background:var(--amber-soft); border-color:#eed5b8; }
-    .decision-button.credit:hover { background:#ffe7cb; }
+    .decision-button.flag { color:var(--amber); background:var(--amber-soft); border-color:#eed5b8; }
+    .decision-button.flag:hover { background:#ffe7cb; }
     .decision-button.keep { color:var(--green); background:var(--green-soft); border-color:#c7decf; }
     .decision-button.keep:hover { background:#d9ecde; }
     .action-icon { font-size:24px; line-height:1; }
@@ -140,25 +146,25 @@
 <body>
   <header class="topbar"><div class="topbar-inner"><div class="brand"><span class="brand-mark" aria-hidden="true">q</span><span>moodlectl <span style="font-weight:400;color:var(--muted)">/ review</span></span></div><div class="local-badge" id="save-status">Local review</div></div></header>
   <main class="shell" id="app" hidden>
-    <div class="heading-row"><div><div class="eyebrow" id="scope-label">Question review</div><h1 id="review-title">Review questions</h1><p class="subtitle">One question at a time. Keep it, or select it for full credit.</p></div><div class="toolbar"><button class="button mobile-queue" id="open-queue" aria-controls="queue-panel" aria-expanded="false">Question queue</button><button class="button" id="show-summary">Selection <span id="selection-count">0</span></button><button class="button primary" id="export-top" disabled>Export decisions</button></div></div>
+    <div class="heading-row"><div><div class="eyebrow" id="scope-label">Question review</div><h1 id="review-title">Review questions</h1><p class="subtitle">One question at a time. Keep it, or flag it for changes.</p></div><div class="toolbar"><button class="button mobile-queue" id="open-queue" aria-controls="queue-panel" aria-expanded="false">Question queue</button><button class="button" id="show-summary">Selection <span id="selection-count">0</span></button><button class="button primary" id="export-top" disabled>Export decisions</button></div></div>
     <p class="storage-notice" id="storage-notice" role="status" hidden>Browser storage is unavailable. Your decisions stay in this tab; export them before closing it.</p>
     <div class="workspace">
       <aside class="sidebar" id="queue-panel" aria-label="Question queue">
-        <div class="sidebar-top"><div class="sidebar-title"><h2>Question queue</h2><span class="count-pill" id="queue-count"></span><button class="close-queue" id="close-queue" aria-label="Close question queue">×</button></div><label class="sr-only" for="search">Search question names and content</label><input class="search" id="search" type="search" placeholder="Search questions…" autocomplete="off"><label class="sr-only" for="filter">Filter questions by decision</label><select class="filter" id="filter"><option value="all">All questions</option><option value="unreviewed">Not reviewed</option><option value="full_credit">Full credit selected</option><option value="keep">Keep</option></select></div>
-        <ol class="queue" id="queue"></ol><div class="queue-footer"><span><i class="decision-dot keep" aria-hidden="true"></i>Keep</span><span><i class="decision-dot full_credit" aria-hidden="true"></i>Full credit</span><span><i class="decision-dot" aria-hidden="true"></i>Not reviewed</span></div>
+        <div class="sidebar-top"><div class="sidebar-title"><h2>Question queue</h2><span class="count-pill" id="queue-count"></span><button class="close-queue" id="close-queue" aria-label="Close question queue">×</button></div><label class="sr-only" for="search">Search question names and content</label><input class="search" id="search" type="search" placeholder="Search questions…" autocomplete="off"><label class="sr-only" for="filter">Filter questions by decision</label><select class="filter" id="filter"><option value="all">All questions</option><option value="unreviewed">Not reviewed</option><option value="flag">Flagged</option><option value="keep">Keep</option></select></div>
+        <ol class="queue" id="queue"></ol><div class="queue-footer"><span><i class="decision-dot keep" aria-hidden="true"></i>Keep</span><span><i class="decision-dot flag" aria-hidden="true"></i>Needs changes</span><span><i class="decision-dot" aria-hidden="true"></i>Not reviewed</span></div>
       </aside>
       <section class="review-area" aria-label="Review workspace">
         <div class="progress-row"><span class="progress-label" id="progress-label"></span><span class="progress-stats" id="progress-stats"></span></div><progress id="progress" aria-label="Questions reviewed" max="1" value="0"></progress>
         <div id="card-view">
-          <div class="card-stage"><article class="question-card" id="question-card" aria-labelledby="question-number" tabindex="-1"><span class="swipe-label left" id="swipe-left" aria-hidden="true">FULL CREDIT</span><span class="swipe-label right" id="swipe-right" aria-hidden="true">KEEP</span><div class="card-top"><div><div class="question-number" id="question-number"></div><div class="question-name" id="question-name"></div><div class="question-id" id="question-id"></div></div><span class="status-badge" id="question-status"></span></div><div class="question-content" id="question-content" dir="auto" tabindex="0" aria-label="Question content"></div><div class="question-warnings" id="question-warnings" hidden></div><div class="card-metrics" id="card-metrics" hidden></div></article></div>
-          <div class="actions"><button class="decision-button credit" id="credit"><span class="action-icon" aria-hidden="true">←</span><span><span class="action-title">Full credit</span><span class="action-description">Select for grade review</span></span></button><button class="decision-button keep" id="keep"><span><span class="action-title">Keep question</span><span class="action-description">Leave grading as it is</span></span><span class="action-icon" aria-hidden="true">→</span></button></div>
-          <div class="navigation"><button class="button quiet" id="undo" disabled>↶ Undo</button><span class="shortcut-hint"><kbd>F</kbd> full credit · <kbd>K</kbd> keep · <kbd>←</kbd> <kbd>→</kbd> browse</span><div class="navigation-group"><button class="button nav-button" id="previous" aria-label="Previous question">‹</button><button class="button nav-button" id="next" aria-label="Next question">›</button></div></div>
-          <p class="explanation">Swipe right to keep, left to select full credit. Decisions are reversible and only saved locally. Nothing changes in Moodle from this page.</p>
+          <div class="card-stage"><article class="question-card" id="question-card" aria-labelledby="question-number" tabindex="-1"><span class="swipe-label left" id="swipe-left" aria-hidden="true">NEEDS CHANGES</span><span class="swipe-label right" id="swipe-right" aria-hidden="true">KEEP</span><div class="card-top"><div><div class="question-number" id="question-number"></div><div class="question-name" id="question-name"></div><div class="question-id" id="question-id"></div></div><span class="status-badge" id="question-status"></span></div><div class="question-content" id="question-content" dir="auto" tabindex="0" aria-label="Question content"></div><div class="moodle-preview" id="moodle-preview" hidden><h3>View this question in Moodle</h3><p>Keep the Moodle preview beside these controls. Once opened, it follows the question you review here.</p><button class="button primary" id="open-moodle-preview">Open Moodle preview</button><br><a id="moodle-preview-link" target="_blank" rel="noopener noreferrer" hidden>Open this preview directly</a><p class="preview-message" id="moodle-preview-message" role="status"></p></div><div class="question-warnings" id="question-warnings" hidden></div><div class="card-metrics" id="card-metrics" hidden></div></article></div>
+          <div class="actions"><button class="decision-button flag" id="flag"><span class="action-icon" aria-hidden="true">←</span><span><span class="action-title">Needs changes</span><span class="action-description">Flag for a later decision</span></span></button><button class="decision-button keep" id="keep"><span><span class="action-title">Keep question</span><span class="action-description">No changes needed</span></span><span class="action-icon" aria-hidden="true">→</span></button></div>
+          <div class="navigation"><button class="button quiet" id="undo" disabled>↶ Undo</button><span class="shortcut-hint"><kbd>F</kbd> flag · <kbd>K</kbd> keep · <kbd>←</kbd> <kbd>→</kbd> browse</span><div class="navigation-group"><button class="button nav-button" id="previous" aria-label="Previous question">‹</button><button class="button nav-button" id="next" aria-label="Next question">›</button></div></div>
+          <p class="explanation">Swipe right to keep, left to flag for changes. Decisions are reversible and only saved locally. Nothing changes in Moodle from this page.</p>
         </div>
-        <section class="summary" id="summary-view" aria-labelledby="summary-heading" hidden><div class="summary-icon" aria-hidden="true">✓</div><h2 id="summary-heading" tabindex="-1">Your selection</h2><p id="summary-description"></p><div class="summary-stats"><div class="summary-stat"><strong id="summary-keep">0</strong><span>questions to keep</span></div><div class="summary-stat"><strong id="summary-credit">0</strong><span>selected for full credit</span></div></div><h3 style="font-size:13px;margin:0">Full credit selection</h3><ul class="selected-list" id="selected-list"></ul><div class="summary-next"><strong>Next step</strong><br>Export your decisions and send the JSON file to your agent for a grade preview. Applying grade changes is a separate step.</div><div class="toolbar"><button class="button primary" id="export-summary" disabled>Export decisions</button><button class="button" id="resume">Continue review</button><button class="button quiet" id="undo-summary" disabled>↶ Undo last decision</button></div><p id="export-help" style="font-size:12px;margin:14px 0 0"></p></section>
+        <section class="summary" id="summary-view" aria-labelledby="summary-heading" hidden><div class="summary-icon" aria-hidden="true">✓</div><h2 id="summary-heading" tabindex="-1">Your selection</h2><p id="summary-description"></p><div class="summary-stats"><div class="summary-stat"><strong id="summary-keep">0</strong><span>questions to keep</span></div><div class="summary-stat"><strong id="summary-flag">0</strong><span>flagged for changes</span></div></div><h3 style="font-size:13px;margin:0">Flagged questions</h3><ul class="selected-list" id="selected-list"></ul><div class="summary-next"><strong>Next step</strong><br><span id="next-step">Export the flagged questions, then choose whether to edit, remove, or exclude them.</span></div><div class="toolbar"><button class="button primary" id="export-summary" disabled>Export decisions</button><button class="button" id="resume">Continue review</button><button class="button quiet" id="undo-summary" disabled>↶ Undo last decision</button></div><p id="export-help" style="font-size:12px;margin:14px 0 0"></p></section>
       </section>
     </div>
-    <footer class="footer"><span>Private review · Decisions stay in this browser until you export.</span><span id="source-label"></span></footer>
+    <footer class="footer"><span id="review-context">Private review · Decide what to change after exporting your flags.</span><span id="source-label"></span></footer>
   </main>
   <div class="backdrop" id="backdrop"></div>
   <section class="error-panel" id="error-panel" hidden><h1 style="font-size:25px">This review could not be opened</h1><p id="error-message"></p></section>
@@ -171,7 +177,7 @@
     let data;
     try {
       data = JSON.parse($("review-data").textContent);
-      if (!data || data.schema_version !== 1 || typeof data.review_id !== "string" || !data.review_id ||
+      if (!data || ![1, 2].includes(data.schema_version) || typeof data.review_id !== "string" || !data.review_id ||
           !data.source || typeof data.source.base_url !== "string" || !Array.isArray(data.questions)) {
         throw new Error("The review file is missing required information. Generate a new review with moodlectl.");
       }
@@ -189,6 +195,11 @@
     }
 
     const questions = data.questions;
+    const moodleMode = data.source.view === "moodle";
+    let previewWindow = null;
+    let previewLocation = null;
+    let previewBlocked = false;
+    const previewWindowName = "moodlectl-question-preview-" + data.review_id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
     const validIds = new Set(questions.map((question) => String(question.id)));
     const storageKey = "moodlectl:question-review:v1:" + data.review_id;
     let decisions = Object.create(null);
@@ -199,14 +210,14 @@
     let drag = null;
     const plainText = questions.map((question) => {
       const fragment = document.createElement("template");
-      fragment.innerHTML = question.html;
+      if (!moodleMode) fragment.innerHTML = question.html;
       return ((question.name || "") + " " + fragment.content.textContent).toLocaleLowerCase();
     });
 
     function announce(message) { $("announcement").textContent = message; }
-    function isDecision(value) { return value === "keep" || value === "full_credit"; }
+    function isDecision(value) { return value === "keep" || value === "flag"; }
     function reviewedCount() { return Object.keys(decisions).length; }
-    function selected() { return questions.filter((question) => decisions[question.id] === "full_credit"); }
+    function selected() { return questions.filter((question) => decisions[question.id] === "flag"); }
     function allReviewed() { return reviewedCount() === questions.length; }
     function storageFailed() {
       storageAvailable = false;
@@ -217,7 +228,8 @@
       const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
       if (saved && saved.review_id === data.review_id && saved.base_url === data.source.base_url) {
         for (const [id, value] of Object.entries(saved.decisions || {})) {
-          if (validIds.has(id) && isDecision(value)) decisions[id] = value;
+          const migrated = value === "full_credit" ? "flag" : value;
+          if (validIds.has(id) && isDecision(migrated)) decisions[id] = migrated;
         }
         if (Number.isInteger(saved.current) && saved.current >= 0 && saved.current < questions.length) current = saved.current;
         else current = Math.max(0, questions.findIndex((question) => !decisions[question.id]));
@@ -235,7 +247,7 @@
       } catch (_) { storageFailed(); }
     }
 
-    function label(decision) { return decision === "keep" ? "Keep" : decision === "full_credit" ? "Full credit selected" : "Not reviewed"; }
+    function label(decision) { return decision === "keep" ? "Keep" : decision === "flag" ? "Flagged" : "Not reviewed"; }
     function questionName(question) { return String(question.name || "Question " + question.id); }
     function closeQueue() {
       $("queue-panel").classList.remove("open");
@@ -283,27 +295,102 @@
     }
 
     function renderSummary() {
-      const credit = selected();
+      const flagged = selected();
       const remaining = questions.length - reviewedCount();
       $("summary-heading").textContent = remaining ? "Your selection so far" : "Review complete";
       $("summary-description").textContent = remaining ? remaining + " question" + (remaining === 1 ? " still needs" : "s still need") + " a decision." : "All questions have a decision. You can revisit any selection before exporting.";
       $("summary-keep").textContent = Object.values(decisions).filter((value) => value === "keep").length;
-      $("summary-credit").textContent = credit.length;
+      $("summary-flag").textContent = flagged.length;
       const fragment = document.createDocumentFragment();
-      credit.forEach((question) => {
+      flagged.forEach((question) => {
         const item = document.createElement("li");
         const name = document.createElement("span"); name.className = "name"; name.textContent = questionName(question);
         const button = document.createElement("button"); button.className = "button"; button.textContent = "Review"; button.setAttribute("aria-label", "Review " + questionName(question));
         button.addEventListener("click", () => openQuestion(questions.indexOf(question), true));
         item.append(name, button); fragment.append(item);
       });
-      if (!credit.length) {
-        const item = document.createElement("li"); item.className = "name"; item.textContent = "No questions selected for full credit."; fragment.append(item);
+      if (!flagged.length) {
+        const item = document.createElement("li"); item.className = "name"; item.textContent = "No questions flagged for changes."; fragment.append(item);
       }
       $("selected-list").replaceChildren(fragment);
-      $("export-help").textContent = remaining ? "Review every question to enable export." : "The export contains question IDs and decisions. It does not apply grades.";
+      $("export-help").textContent = remaining ? "Review every question to enable export." : "The export records your review flags. Choose and approve any Moodle action separately.";
       $("resume").textContent = remaining ? "Continue review" : "Review questions again";
       $("resume").disabled = questions.length === 0;
+    }
+
+    function safePreviewURL(question) {
+      try {
+        const base = new URL(data.source.base_url);
+        const url = new URL(question.moodle_url);
+        const credentialKeys = new Set(["sesskey", "token", "wstoken", "password", "moodlesession"]);
+        if (base.protocol !== "https:" || url.protocol !== "https:" || url.origin !== base.origin ||
+            base.username || base.password || url.username || url.password ||
+            Array.from(url.searchParams.keys()).some((key) => credentialKeys.has(key.toLowerCase()))) return null;
+        return url.href;
+      } catch (_) { return null; }
+    }
+
+    function previewIsOpen() {
+      if (!previewWindow) return false;
+      try { return !previewWindow.closed; } catch (_) { return false; }
+    }
+
+    function updateMoodlePreview(question) {
+      const url = safePreviewURL(question);
+      const button = $("open-moodle-preview");
+      const link = $("moodle-preview-link");
+      const message = $("moodle-preview-message");
+      button.disabled = !url;
+      link.hidden = !url;
+      if (url) link.href = url; else link.removeAttribute("href");
+      message.classList.toggle("preview-error", !url);
+      if (!url) {
+        message.textContent = "This question has no safe Moodle preview URL. Regenerate the review or check the question in Moodle. The other window may still show the previous question.";
+        button.textContent = "Preview unavailable";
+        return;
+      }
+      if (previewIsOpen()) {
+        if (previewLocation !== url) {
+          try {
+            // Cross-origin navigation only. Never read the Moodle window's document or URL.
+            previewWindow.location.href = url;
+            previewLocation = url;
+          } catch (_) {
+            previewWindow = null;
+            previewLocation = null;
+            previewBlocked = true;
+          }
+        }
+      }
+      button.textContent = previewIsOpen() ? "Reopen / focus Moodle preview" : "Open Moodle preview";
+      message.textContent = previewIsOpen()
+        ? "The Moodle preview is synchronized with this question. Sign in there if Moodle asks."
+        : previewBlocked
+          ? "Your browser blocked or disconnected the preview window. Try opening it again, or use the direct link."
+          : "Open the preview once to connect it. Future cards will reuse that window.";
+    }
+
+    function openMoodlePreview() {
+      const question = questions[current];
+      if (!moodleMode || !question) return;
+      const url = safePreviewURL(question);
+      if (!url) { updateMoodlePreview(question); return; }
+      if (!previewIsOpen()) {
+        try {
+          // A user gesture creates this review's own named window, not an arbitrary existing tab.
+          previewWindow = window.open(url, previewWindowName, "popup=yes,width=1080,height=900,resizable=yes,scrollbars=yes");
+          previewLocation = previewWindow ? url : null;
+          previewBlocked = !previewWindow;
+          if (previewWindow) {
+            // Detach the remote page's access to the local review while retaining our WindowProxy.
+            try { previewWindow.opener = null; } catch (_) { /* Some browsers detach it already. */ }
+          }
+        } catch (_) { previewWindow = null; previewLocation = null; previewBlocked = true; }
+      }
+      updateMoodlePreview(question);
+      if (previewIsOpen()) {
+        try { previewWindow.focus(); } catch (_) { /* Browsers may keep the review focused. */ }
+      }
     }
 
     function renderCard() {
@@ -315,9 +402,16 @@
       $("question-id").textContent = "Question ID " + question.id + (question.version == null ? "" : " · Version " + String(question.version));
       $("question-status").textContent = label(decision);
       $("question-status").className = "status-badge" + (decision ? " " + decision : "");
-      // Question HTML is sanitized and made self-contained by the Python exporter.
-      $("question-content").innerHTML = question.html;
-      $("question-content").scrollTop = 0;
+      $("question-content").hidden = moodleMode;
+      $("moodle-preview").hidden = !moodleMode;
+      if (moodleMode) {
+        $("question-content").replaceChildren();
+        updateMoodlePreview(question);
+      } else {
+        // Offline question HTML is sanitized and made self-contained by the Python exporter.
+        $("question-content").innerHTML = question.html;
+        $("question-content").scrollTop = 0;
+      }
       const warnings = document.createDocumentFragment();
       (Array.isArray(question.warnings) ? question.warnings : []).forEach((warning) => {
         const paragraph = document.createElement("p"); paragraph.textContent = String(warning); warnings.append(paragraph);
@@ -333,14 +427,14 @@
       $("card-metrics").replaceChildren(metrics);
       $("previous").disabled = current === 0;
       $("next").disabled = current === questions.length - 1;
-      $("credit").setAttribute("aria-pressed", String(decision === "full_credit"));
+      $("flag").setAttribute("aria-pressed", String(decision === "flag"));
       $("keep").setAttribute("aria-pressed", String(decision === "keep"));
     }
 
     function render() {
       const count = reviewedCount();
       $("progress-label").textContent = count + " of " + questions.length + " reviewed";
-      $("progress-stats").textContent = selected().length + " selected for full credit";
+      $("progress-stats").textContent = selected().length + " flagged for changes";
       $("progress").max = Math.max(1, questions.length);
       $("progress").value = count;
       $("selection-count").textContent = selected().length;
@@ -381,23 +475,36 @@
     function exportDecisions() {
       if (!allReviewed()) { announce("Review every question before exporting."); return; }
       const payload = {
-        schema_version:1, review_id:data.review_id, base_url:data.source.base_url,
+        schema_version:2, review_id:data.review_id, base_url:data.source.base_url,
         selected_question_ids:selected().map((question) => question.id),
-        decisions:{ ...decisions }, complete:true
+        decisions:{ ...decisions }, complete:true, intent:"review"
       };
       const url = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2) + "\n"], { type:"application/json" }));
       const link = document.createElement("a"); link.href = url; link.download = "moodle-review-" + data.review_id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80) + "-decisions.json"; document.body.append(link); link.click(); link.remove();
       window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      announce("Decisions exported. Send the downloaded JSON file to your agent for a grade preview.");
+      announce("Review flags exported. Send the JSON file to your agent to discuss the next action.");
     }
 
+    const attemptCount = data.source.attempt_count;
+    const nextStep = attemptCount === 0
+      ? "No attempts yet. Export the flagged questions, then choose whether to edit, remove, or exclude them."
+      : Number.isFinite(attemptCount) && attemptCount > 0
+        ? "Existing submissions are present. Export the flagged questions, then discuss grading corrections and whether to edit or exclude questions for future use."
+        : "Export the flagged questions, then choose whether to edit, remove, or exclude them. Review any grading corrections separately if submissions exist.";
+    $("next-step").textContent = nextStep;
+    $("review-context").textContent = attemptCount === 0
+      ? "No attempts yet · Review edits and removals after exporting."
+      : Number.isFinite(attemptCount) && attemptCount > 0
+        ? "Existing submissions · Discuss grading corrections after exporting."
+        : "Private review · Choose the next action after exporting your flags.";
     $("review-title").textContent = String(data.source.title || "Review questions");
     const scopes = { quiz:"Quiz question review", attempted:"Attempted question review", category:"Question category review", course:"Course question review", all:"Question bank review", site:"Question review" };
     $("scope-label").textContent = scopes[data.source.scope] || "Question review";
     try { $("source-label").textContent = new URL(data.source.base_url).hostname; } catch (_) { $("source-label").textContent = "Moodle question review"; }
     document.title = String(data.source.title || "Question review") + " · moodlectl";
+    $("open-moodle-preview").addEventListener("click", openMoodlePreview);
     $("keep").addEventListener("click", () => decide("keep"));
-    $("credit").addEventListener("click", () => decide("full_credit"));
+    $("flag").addEventListener("click", () => decide("flag"));
     $("undo").addEventListener("click", undo);
     $("undo-summary").addEventListener("click", undo);
     $("previous").addEventListener("click", () => openQuestion(current - 1));
@@ -433,7 +540,7 @@
       if (event.key === "ArrowLeft") { event.preventDefault(); openQuestion(current - 1); }
       else if (event.key === "ArrowRight") { event.preventDefault(); openQuestion(current + 1); }
       else if (event.key.toLowerCase() === "k") { event.preventDefault(); decide("keep"); }
-      else if (event.key.toLowerCase() === "f") { event.preventDefault(); decide("full_credit"); }
+      else if (event.key.toLowerCase() === "f") { event.preventDefault(); decide("flag"); }
     });
 
     function resetDrag() {
@@ -461,7 +568,7 @@
       const { dx, dy, index } = drag;
       const threshold = Math.min(120, $("question-card").clientWidth * .28);
       resetDrag();
-      if (current === index && Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.6 && !window.getSelection().toString()) decide(dx > 0 ? "keep" : "full_credit");
+      if (current === index && Math.abs(dx) > threshold && Math.abs(dx) > Math.abs(dy) * 1.6 && !window.getSelection().toString()) decide(dx > 0 ? "keep" : "flag");
     });
     window.addEventListener("pointercancel", resetDrag);
     window.addEventListener("blur", resetDrag);

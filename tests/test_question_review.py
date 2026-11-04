@@ -183,7 +183,7 @@ def test_attempted_review_uses_blank_preview_not_student_essay():
     student_page = BeautifulSoup('''<div class="que" id="question-1-1"><div class="editquestion"><a href="/question/bank/editquestion/question.php?id=11">Edit</a></div><div class="qtext">Essay stem</div><div class="ablock"><div class="answer">PRIVATE STUDENT ESSAY</div></div></div>''', 'html.parser')
     blank = BeautifulSoup('<div class="que"><div class="qtext">Essay stem</div><div class="ablock"><textarea></textarea></div></div>', 'html.parser')
     with patch.object(review, 'attempt_snapshot', return_value=[attempt()]), patch.object(review, '_get', side_effect=[student_page, BeautifulSoup('<h1>Quiz</h1>', 'html.parser'), blank]) as get:
-        artifact = review.collect_review(client, 'attempted', quiz=7)
+        artifact = review.collect_review(client, 'attempted', quiz=7, view='offline')
     assert 'PRIVATE STUDENT ESSAY' not in json.dumps(artifact)
     assert 'preview.php?id=11' in get.call_args.args[1]
     assert artifact['questions'][0]['attempt_count'] == 1
@@ -244,3 +244,30 @@ def test_response_fingerprint_covers_text_inputs_essays_and_attachments(response
         original = review.attempt_snapshot(client, 7)
         changed = review.attempt_snapshot(client, 7)
     assert original[0]['questions'][0]['response_hash'] != changed[0]['questions'][0]['response_hash']
+
+
+def test_generic_flags_are_not_grading_authorization():
+    artifact, selection = inputs()
+    artifact['schema_version'] = 2
+    selection.update(schema_version=2, intent='review', decisions={'11':'flag','22':'keep'})
+    client = Mock(base_url='https://moodle.example')
+    with patch.object(review, 'attempt_snapshot') as snapshot, pytest.raises(review.ReviewError, match='review flags'):
+        review.make_credit_plan(client, 7, artifact, selection)
+    snapshot.assert_not_called()
+    with patch.object(review, 'attempt_snapshot', return_value=[attempt()]):
+        plan = review.make_credit_plan(client, 7, artifact, selection, action='full-credit')
+    assert plan['attempts'][0]['after'] == 1.
+
+
+def test_moodle_view_exports_links_without_rendering_or_fetching_content():
+    client = Mock(base_url='https://moodle.example')
+    setup = BeautifulSoup('<h1>Quiz 2</h1><a href="https://moodle.example/question/bank/previewquestion/preview.php?id=11&amp;cmid=7&amp;sesskey=must-not-export">Preview</a>', 'html.parser')
+    with patch.object(review, 'attempt_snapshot', return_value=[]), patch.object(review, '_get', return_value=setup) as get, patch.object(review, '_content') as content:
+        artifact = review.collect_review(client, 'quiz', quiz=7)
+    assert artifact['schema_version'] == 2
+    assert artifact['source']['view'] == 'moodle' and artifact['source']['attempt_count'] == 0
+    assert artifact['questions'][0]['html'] == ''
+    assert artifact['questions'][0]['moodle_url'] == 'https://moodle.example/question/bank/previewquestion/preview.php?cmid=7&id=11'
+    assert 'must-not-export' not in json.dumps(artifact)
+    assert get.call_count == 1
+    content.assert_not_called()

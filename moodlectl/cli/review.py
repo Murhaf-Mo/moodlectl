@@ -13,7 +13,7 @@ from moodlectl.config import Config
 from moodlectl.features import question_review as feature
 from moodlectl.output.formatters import print_table
 
-app = typer.Typer(help='Review question cards and preview/apply full credit after submissions.')
+app = typer.Typer(help='Review question cards, choose edits/removals, or explicitly preview grading corrections.')
 
 
 def _client():
@@ -31,6 +31,7 @@ def _error(exc):
 
 @app.command('create')
 def create_review(
+    view: str = typer.Option('moodle', help='moodle: original preview window; offline: export passive question content.'),
     scope: str = typer.Option('quiz', help='quiz, attempted, bank, category, course, or all accessible courses.'),
     quiz: int | None = typer.Option(None, '--quiz', '-q', help='Quiz activity cmid.'),
     course: list[int] | None = typer.Option(None, '--course', '-c', help='Course ID; repeat for multiple courses.'),
@@ -41,17 +42,17 @@ def create_review(
 ):
     """Export question cards. Does not change student marks or question status.
 
-    Review all cards, then export your selection JSON from the final screen.
+    Review all cards with Keep / Needs changes, then export your flags for a separate action decision.
     Scope quiz includes pool questions and versions used in existing attempts;
     attempted includes only versions actually given to students.
     """
     try:
-        review = feature.collect_review(_client(), scope, quiz=quiz, courses=course or [], category=category, bank=bank)
+        review = feature.collect_review(_client(), scope, quiz=quiz, courses=course or [], category=category, bank=bank, view=view)
         path = feature.save_review(review, output).resolve()
     except (RuntimeError, ValueError, OSError, requests.RequestException) as exc:
         _error(exc)
     typer.echo(f'{len(review["questions"])} question cards saved: {path}')
-    typer.echo('Review the cards and export your selection. Then run moodlectl review preview.')
+    typer.echo('Review the cards and export your selection. Then choose what to do with the flagged questions: edit, remove/exclude, or adjust grades.')
     if open_browser:
         webbrowser.open(path.as_uri())
 
@@ -62,12 +63,13 @@ def preview_credit(
     review: Path = typer.Option(..., exists=True, dir_okay=False, help='review.json from review create.'),
     selection: Path = typer.Option(..., exists=True, dir_okay=False, help='Selection JSON downloaded from the reviewer.'),
     output: Path = typer.Option(..., '--output', '-o', help='New JSON plan file, including the before snapshot.'),
+    action: str | None = typer.Option(None, help='Use full-credit only after choosing grading as the action for flagged questions.'),
 ):
     """Calculate before/after attempt grades. Does not write marks to Moodle."""
     try:
         if output.exists():
             raise feature.ReviewError('Plan already exists; choose a new output filename.')
-        plan = feature.make_credit_plan(_client(), quiz, _read(review), _read(selection))
+        plan = feature.make_credit_plan(_client(), quiz, _read(review), _read(selection), action=action)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(json.dumps(plan, ensure_ascii=False, indent=2), encoding='utf-8')
     except (RuntimeError, ValueError, OSError, requests.RequestException) as exc:

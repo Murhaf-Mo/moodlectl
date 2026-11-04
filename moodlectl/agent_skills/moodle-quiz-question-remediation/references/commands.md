@@ -1,79 +1,94 @@
 # CLI workflow
 
-Run `moodlectl review --help` and each subcommand's `--help` if the installed version
-differs. The commands below are built into moodlectl; no browser automation or
-web-hosting service is needed for the reviewer.
+Use `moodlectl review --help` for the installed version's commands. The default
+reviewer displays the original Moodle question in a reusable browser window.
+The local page records **Keep / Needs changes** decisions; actions are chosen later.
 
-## Discover the destination
+## Discover and authenticate
 
 ```bash
+moodlectl auth check
+moodlectl auth login
 moodlectl courses list
 moodlectl quizzes list --course COURSE_ID
+moodlectl quizzes info --quiz QUIZ_CMID
 moodlectl questions list-categories --course COURSE_ID
 ```
 
-On Moodle 5, category operations may need the question-bank or quiz activity cmid;
-pass `--bank BANK_CMID` to `review create --scope category`.
+Run from the directory with the correct `.env`. On Moodle 5, a category can require
+the bank or quiz activity cmid (`--bank`). The CLI session does not sign the user's
+normal browser into Moodle: the preview window may require browser sign-in.
 
-## Choose a scope
+## Choose a review scope
 
-Each command writes `review.html` and `review.json` into a **new** directory.
-`--open` opens the HTML in the default browser; otherwise use the agent environment's
-supported local preview mechanism. Scope is chosen before export; changing scope
-requires a new export, because the offline page cannot query Moodle.
-
-```bash
-moodlectl review create --scope quiz --quiz QUIZ_CMID --output ./quiz-review --open
-moodlectl review create --scope attempted --quiz QUIZ_CMID --output ./attempted-review --open
-moodlectl review create --scope bank --bank BANK_CMID --output ./bank-review
-moodlectl review create --scope category --course COURSE_ID --category CATEGORY_ID --bank BANK_CMID --output ./category-review
-moodlectl review create --scope course --course COURSE_ID --output ./course-review
-moodlectl review create --scope course --course COURSE_A --course COURSE_B --output ./courses-review
-moodlectl review create --scope all --output ./all-banks-review
-```
-
-The HTML shows passive question content and embedded same-site raster images. It
-uses no session cookies or credentials. Unsupported embedded media is flagged;
-check such questions in Moodle. Treat both the HTML and JSON as private exam content.
-Question IDs identify exact versions; the quiz scope includes earlier versions used
-in attempts alongside currently available pool questions. Attempted scope currently
-requires finished, numerically graded attempts, as do correction plans. Unsupported
-report layouts or grading totals stop the export/plan rather than guess.
-
-## Preview the selected quiz
-
-After the instructor reviews all cards and exports decisions:
+Each command writes `review.html` and `review.json` into a new directory. `--open`
+opens the local reviewer. Click **Open Moodle preview** once to enable synchronized
+question navigation. Browser popup blockers may require that user click. Question
+links contain only the exact question-version ID and course/module context, never
+session credentials. Keep the original-preview window open while reviewing.
 
 ```bash
-moodlectl review preview --quiz QUIZ_CMID --review ./quiz-review/review.json --selection ./selection.json --output ./credit-plan.json
+moodlectl review create --view moodle --scope quiz --quiz QUIZ_CMID --output ./quiz-review --open
+moodlectl review create --view moodle --scope attempted --quiz QUIZ_CMID --output ./attempted-review
+moodlectl review create --view moodle --scope bank --bank BANK_CMID --output ./bank-review
+moodlectl review create --view moodle --scope category --course COURSE_ID --category CATEGORY_ID --bank BANK_CMID --output ./category-review
+moodlectl review create --view moodle --scope course --course COURSE_ID --output ./course-review
+moodlectl review create --view moodle --scope course --course COURSE_A --course COURSE_B --output ./courses-review
+moodlectl review create --view moodle --scope all --output ./all-banks-review
 ```
 
-This reads all attempt-report pages and creates a private before snapshot with
-question IDs, per-attempt slots, marks, maximum marks, and response/text fingerprints.
-It prints before/after **attempt** grades. It does not change Moodle grades.
-Selection files are bound to a review ID and Moodle site, and quiz-scoped exports
-are bound to that quiz. Course/bank exports require the quiz to be supplied explicitly.
-Questions not given in submitted attempts are reported separately.
+Scope `quiz` includes current fixed/pool questions and versions students received.
+Scope `attempted` includes only versions actually given to students. Different
+versions are not silently merged. Scope is chosen at export time; change it by
+creating another export. The current quiz/attempted collector requires finished,
+numerically graded attempts if attempts exist; unattempted quizzes work too.
 
-## Apply an approved plan
+For a self-contained offline view, request `--view offline`. It embeds passive
+question content and same-site raster images; check its media warnings and Moodle
+for unsupported displays. Treat all review artifacts as private exam information.
+
+## Flags and the next action
+
+After reviewing every card, export decisions. Schema 2 uses `intent: "review"`,
+`decisions` with `keep|flag`, and `selected_question_ids`; it does not select a Moodle
+mutation. Older saved `full_credit` decisions are migrated to neutral flags in the
+updated UI so the instructor can reconsider the action.
+
+With no attempts, discuss editing/replacing/removing the flagged questions or
+excluding them from pools. Do not run a grade correction just because flags exist.
+The CLI currently has no automated edit/remove command; use the verified Moodle
+UI/API after the instructor chooses a concrete action. Deleting questions from the
+bank is distinct from removing them from a quiz and must not be inferred.
+
+## Preview full credit when chosen
+
+```bash
+moodlectl review preview --action full-credit --quiz QUIZ_CMID --review ./quiz-review/review.json --selection ./selection.json --output ./credit-plan.json
+```
+
+Generic schema-2 flags require the explicit `--action full-credit`; otherwise the
+command stops. Legacy schema-1 full-credit exports remain readable. This command
+reads all report pages, clears grading/regrade filters, and creates a private
+snapshot of IDs, per-attempt slots/marks, and response/content fingerprints.
+It prints attempt grades, not an assertion about the final gradebook result when
+several attempts exist. It reports selected questions not used in submissions.
+
+After the instructor approves that exact plan:
 
 ```bash
 moodlectl review apply --plan ./credit-plan.json --journal ./credit-journal.jsonl
-# Only when the exact plan has already been approved:
+# For a plan already approved in this session:
 moodlectl review apply --plan ./credit-plan.json --journal ./credit-journal.jsonl --yes
 ```
 
-The command re-reads attempts before writing, refuses stale snapshots, fetches each
-fresh manual-grading form, preserves existing comments, and does not post student
-answer controls. It records pending writes before submission and verifies each mark
-and the final report. An existing journal blocks replay. If interrupted, inspect
-both the journal and Moodle, then create a fresh preview against the current state.
-No retirement is bundled into this command.
+It refuses stale snapshots, uses fresh per-response grading forms, preserves existing
+comments and student answers, and verifies the save and final report. An existing
+journal blocks replay; inspect partial results and create a new preview after a
+failure. Question retirement is never bundled into this grading command.
 
 UI equivalents: Quiz → Results → Grades → Review attempt → Make comment or override
-mark → enter the full question mark → Save. Future exclusion, when separately
-requested: Question bank → Questions → Status → Draft, after checking pool capacity
-and version eligibility.
+mark → full mark → Save. For separately approved future exclusion: Question bank →
+Status → Draft, after checking all versions and pool capacity.
 
 ## Agent discovery
 
@@ -83,8 +98,7 @@ moodlectl skills show moodle-quiz-question-remediation
 moodlectl skills path moodle-quiz-question-remediation
 ```
 
-The skill and references ship with the package. Copy the directory printed by
-`skills path` to the agent's skill directory if automatic discovery is needed.
-For Codex, use `~/.codex/skills/` and start a new session. Repository agents find
-this skill through `AGENTS.md`. The discovery commands do not authenticate or mutate
-Moodle even when `MOODLE_AUTO_LOGIN=true`.
+The skill ships with the package; `AGENTS.md` points repository agents to it.
+Copy its folder into the agent's skills directory for automatic discovery (Codex:
+`~/.codex/skills/`, then start a new session). Discovery commands do not authenticate
+or mutate Moodle, even with `MOODLE_AUTO_LOGIN=true`.

@@ -189,7 +189,9 @@ def attempt_snapshot(client, quiz):
     return result
 
 
-def collect_review(client, scope, *, quiz=None, courses=(), category=None, bank=None):
+def collect_review(client, scope, *, quiz=None, courses=(), category=None, bank=None, view='moodle'):
+    if view not in {'moodle', 'offline'}:
+        raise ReviewError('Choose moodle or offline for --view.')
     if scope in {'quiz', 'attempted'} and not quiz:
         raise ReviewError('--quiz is required for quiz and attempted scopes.')
     if scope in {'course', 'category'} and not courses:
@@ -256,7 +258,15 @@ def collect_review(client, scope, *, quiz=None, courses=(), category=None, bank=
     counts = Counter(q['id'] for a in attempts for q in a['questions'])
     incorrect = Counter(q['id'] for a in attempts for q in a['questions'] if q['mark'] < q['maxmark'])
     for qid, q in questions.items():
-        if 'html' not in q:
+        # Keep an exact-version, credential-free URL for Moodle's own rendering.
+        original = urlparse(q['preview_url'])
+        context = parse_qs(original.query)
+        allowed = {key: context[key][0] for key in ('cmid', 'courseid') if context.get(key)}
+        allowed['id'] = qid
+        q['moodle_url'] = client.base_url.rstrip('/') + original.path + '?' + urlencode(allowed)
+        if view == 'moodle':
+            q['html'], q['warnings'] = '', []
+        elif 'html' not in q:
             doc = _get(client, q['preview_url'])
             node = doc.select_one('.que')
             if not node:
@@ -269,9 +279,10 @@ def collect_review(client, scope, *, quiz=None, courses=(), category=None, bank=
         raise ReviewError('No questions found. Check the course/bank context and permissions.')
     source = {'base_url': client.base_url.rstrip('/'), 'scope': scope, 'quiz_id': quiz,
               'course_ids': list(courses), 'category_id': category, 'bank_id': bank,
+              'attempt_count': len(attempts) if scope in {'quiz', 'attempted'} else None,
               'title': (quiz_title or f'Quiz {quiz}') if quiz else f'{scope.title()} question review'}
-    return {'schema_version': 1, 'review_id': str(uuid.uuid4()), 'created_at': datetime.now(timezone.utc).isoformat(),
-            'source': source, 'questions': sorted(questions.values(), key=lambda x: (x['name'], x['id']))}
+    return {'schema_version': 2, 'review_id': str(uuid.uuid4()), 'created_at': datetime.now(timezone.utc).isoformat(),
+            'source': {**source, 'view': view}, 'questions': sorted(questions.values(), key=lambda x: (x['name'], x['id']))}
 
 
 def save_review(review, directory):
@@ -286,9 +297,14 @@ def save_review(review, directory):
     return directory / 'review.html'
 
 
-def make_credit_plan(client, quiz, review, selection):
-    if selection.get('schema_version') != 1 or selection.get('review_id') != review.get('review_id'):
+def make_credit_plan(client, quiz, review, selection, *, action=None):
+    version = selection.get('schema_version')
+    if version not in {1, 2} or selection.get('review_id') != review.get('review_id'):
         raise ReviewError('Selection belongs to a different review.')
+    if version == 2 and (selection.get('intent') != 'review' or action != 'full-credit'):
+        raise ReviewError('These are review flags, not grading instructions. Choose edit/remove/exclude, or explicitly use --action full-credit for grading.')
+    if action not in {None, 'full-credit'}:
+        raise ReviewError('This command only previews full-credit grading. Edits/removals are separate actions.')
     base = client.base_url.rstrip('/')
     if review['source']['base_url'] != base or selection.get('base_url') != base:
         raise ReviewError('Review/selection belongs to a different Moodle site.')
@@ -301,9 +317,9 @@ def make_credit_plan(client, quiz, review, selection):
     if not selected or any(type(q) is not int or q not in available for q in selected):
         raise ReviewError('Selection is empty or contains IDs absent from this review.')
     decisions = selection.get('decisions', {})
-    if not isinstance(decisions, dict) or set(decisions) != {str(q) for q in available} or any(v not in {'keep', 'full_credit'} for v in decisions.values()):
+    if not isinstance(decisions, dict) or set(decisions) != {str(q) for q in available} or any(v not in ({'keep', 'flag'} if version == 2 else {'keep', 'full_credit'}) for v in decisions.values()):
         raise ReviewError('Selection does not contain a decision for every review card.')
-    if {int(k) for k, value in decisions.items() if value == 'full_credit'} != set(selected):
+    if {int(k) for k, value in decisions.items() if value == ('flag' if version == 2 else 'full_credit')} != set(selected):
         raise ReviewError('Selected IDs disagree with the card decisions.')
     attempts = attempt_snapshot(client, quiz)
     for attempt in attempts:
