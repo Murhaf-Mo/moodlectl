@@ -64,6 +64,26 @@ The bundled automated write command currently supports **full-credit overrides o
 Edits, replacements and quiz/pool removals use the site's verified Moodle UI or APIs;
 do not invent CLI commands for unsupported actions.
 
+## Format programming questions
+
+Use short, self-contained snippets with the declarations and inputs needed to answer
+one clear question. Adapt familiar lecture examples when the source is available.
+For bilingual questions, place one shared code block after the Arabic RTL and English
+LTR stems. Keep code and exact output in their original language.
+
+```python
+from moodlectl.output.question_code import render_code_block
+
+code_html = render_code_block(snippet, "Java")  # Also supports "C#".
+```
+
+Use the labelled, left-to-right HTML fragment in the question body. It preserves
+indentation and spaces and uses inline syntax colors so external stylesheets and
+scripts are unnecessary. After saving or importing, open Moodle's original
+question preview and check the code text, indentation, colors, and alignment.
+If an import collapses spaces around colored tokens, repair the snippet with the
+supported question editor and preview it again.
+
 ## Full credit only when explicitly chosen
 
 For a schema-2 flag export, run `moodlectl review preview --action full-credit` for an
